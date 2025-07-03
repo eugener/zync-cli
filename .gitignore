@@ -1,0 +1,26 @@
+# Zig build outputs
+zig-out/
+zig-cache/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Dependencies
+.zig-cache/
+deps/
+
+# Testing
+test-results/
+coverage/
+
+# Local development
+.env
+.env.local
