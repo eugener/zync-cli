@@ -1,46 +1,94 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
-
-pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // Don't forget to flush!
-}
-
-test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
-    try std.testing.expectEqual(@as(i32, 42), list.pop());
-}
-
-test "use other module" {
-    try std.testing.expectEqual(@as(i32, 150), lib.add(100, 50));
-}
-
-test "fuzz example" {
-    const Context = struct {
-        fn testOne(context: @This(), input: []const u8) anyerror!void {
-            _ = context;
-            // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
-            try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
-        }
-    };
-    try std.testing.fuzz(Context{}, Context.testOne, .{});
-}
+//! Demo application for the Zync-CLI library
 
 const std = @import("std");
 
 /// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const lib = @import("zync_cli_lib");
+const zync_cli = @import("zync_cli_lib");
+
+// Define our CLI arguments structure
+const Args = struct {
+    @"verbose|v": bool = false,
+    @"name|n": []const u8 = "World",
+    @"count|c": u32 = 1,
+    @"help|h": bool = false,
+    
+    pub const cli = .{
+        .name = "zync-cli-demo",
+        .version = "0.1.0",
+        .description = "A demonstration of the Zync-CLI library",
+        .examples = &.{
+            .{ .desc = "Basic usage", .cmd = "zync-cli-demo --name Alice" },
+            .{ .desc = "With verbose output", .cmd = "zync-cli-demo -v --count 3" },
+        },
+    };
+};
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    
+    // Parse command line arguments
+    var result = zync_cli.cli.parse(Args, allocator) catch |err| switch (err) {
+        error.UnknownFlag, error.MissingValue, error.InvalidValue => {
+            std.debug.print("Error parsing arguments. Use --help for usage information.\n", .{});
+            return;
+        },
+        else => return err,
+    };
+    defer result.deinit();
+    
+    const args = result.args;
+    
+    // Handle help flag
+    if (args.@"help|h") {
+        const help_text = zync_cli.cli.help(Args);
+        std.debug.print("{s}\n", .{help_text});
+        return;
+    }
+    
+    // Print any diagnostics (warnings, etc.)
+    for (result.diagnostics) |diagnostic| {
+        switch (diagnostic.level) {
+            .warning => std.debug.print("Warning: {s}\n", .{diagnostic.message}),
+            .info => std.debug.print("Info: {s}\n", .{diagnostic.message}),
+            .hint => std.debug.print("Hint: {s}\n", .{diagnostic.message}),
+            .err => std.debug.print("Error: {s}\n", .{diagnostic.message}),
+        }
+    }
+    
+    // Use the parsed arguments
+    if (args.@"verbose|v") {
+        std.debug.print("Verbose mode enabled\n", .{});
+        std.debug.print("Arguments parsed successfully:\n", .{});
+        std.debug.print("  name: {s}\n", .{args.@"name|n"});
+        std.debug.print("  count: {d}\n", .{args.@"count|c"});
+    }
+    
+    // Demonstrate the functionality
+    var i: u32 = 0;
+    while (i < args.@"count|c") : (i += 1) {
+        std.debug.print("Hello, {s}!\n", .{args.@"name|n"});
+    }
+}
+
+test "basic library usage" {
+    // Test that we can import and use the library
+    _ = zync_cli.cli;
+    _ = zync_cli.types;
+    _ = zync_cli.parser;
+    _ = zync_cli.meta;
+}
+
+test "demo CLI parsing" {
+    const allocator = std.testing.allocator;
+    
+    // Test basic parsing
+    var result = try zync_cli.cli.parseFrom(Args, allocator, &.{"demo", "--name", "Test", "-v"});
+    defer result.deinit();
+    
+    
+    try std.testing.expectEqualStrings(result.args.@"name|n", "Test");
+    try std.testing.expect(result.args.@"verbose|v" == true);
+    try std.testing.expect(result.args.@"count|c" == 1); // default value
+}
