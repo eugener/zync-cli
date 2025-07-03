@@ -21,6 +21,10 @@ pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const [
     var diagnostics = std.ArrayList(Diagnostic).init(allocator);
     var allocated_strings = std.ArrayList([]u8).init(allocator);
     
+    // Track which fields were provided
+    var provided_fields = std.ArrayList([]const u8).init(allocator);
+    defer provided_fields.deinit();
+    
     // Extract field metadata at compile time
     const field_info = comptime meta.extractFields(T);
     
@@ -35,18 +39,21 @@ pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const [
         
         if (std.mem.startsWith(u8, arg, "--")) {
             // Long flag (--flag or --flag=value)
-            i = try parseLongFlag(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, allocator);
+            i = try parseLongFlag(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, &provided_fields, allocator);
         } else if (std.mem.startsWith(u8, arg, "-") and arg.len > 1) {
             // Short flag (-f or -fvalue)
-            i = try parseShortFlag(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, allocator);
+            i = try parseShortFlag(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, &provided_fields, allocator);
         } else {
             // Positional argument
-            i = try parsePositional(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, allocator);
+            i = try parsePositional(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, &provided_fields, allocator);
         }
     }
     
+    // Apply default values for fields that weren't provided
+    try applyDefaults(T, field_info, &result, provided_fields.items, &allocated_strings, allocator);
+    
     // Check for missing required arguments
-    try validateRequired(T, field_info, result, &diagnostics, allocator);
+    try validateRequired(T, field_info, result, &diagnostics, provided_fields.items, allocator);
     
     return ParseResult(T){
         .args = result,
@@ -65,6 +72,7 @@ fn parseLongFlag(
     index: usize,
     diagnostics: *std.ArrayList(Diagnostic),
     allocated_strings: *std.ArrayList([]u8),
+    provided_fields: *std.ArrayList([]const u8),
     allocator: std.mem.Allocator,
 ) !usize {
     const arg = args[index];
@@ -79,6 +87,7 @@ fn parseLongFlag(
         if (findFieldByName(field_info, flag_name)) |field_index| {
             const field = field_info[field_index];
             try setFieldValue(T, result, field, flag_value, allocated_strings, allocator);
+            try provided_fields.append(field.name);
         } else {
             try diagnostics.append(Diagnostic{
                 .level = .err,
@@ -101,6 +110,7 @@ fn parseLongFlag(
             if (isBooleanField(T, field)) {
                 // Boolean flag, set to true
                 try setFieldValue(T, result, field, "true", allocated_strings, allocator);
+                try provided_fields.append(field.name);
                 return index + 1;
             } else {
                 // Flag requires a value, get it from next argument
@@ -115,6 +125,7 @@ fn parseLongFlag(
                 
                 const flag_value = args[index + 1];
                 try setFieldValue(T, result, field, flag_value, allocated_strings, allocator);
+                try provided_fields.append(field.name);
                 return index + 2;
             }
         } else {
@@ -141,6 +152,7 @@ fn parseShortFlag(
     index: usize,
     diagnostics: *std.ArrayList(Diagnostic),
     allocated_strings: *std.ArrayList([]u8),
+    provided_fields: *std.ArrayList([]const u8),
     allocator: std.mem.Allocator,
 ) !usize {
     const arg = args[index];
@@ -153,10 +165,12 @@ fn parseShortFlag(
             // Value embedded in flag (-fvalue)
             const flag_value = arg[2..];
             try setFieldValue(T, result, field, flag_value, allocated_strings, allocator);
+            try provided_fields.append(field.name);
             return index + 1;
         } else if (isBooleanField(T, field)) {
             // Boolean flag
             try setFieldValue(T, result, field, "true", allocated_strings, allocator);
+            try provided_fields.append(field.name);
             return index + 1;
         } else {
             // Flag requires a value from next argument
@@ -171,6 +185,7 @@ fn parseShortFlag(
             
             const flag_value = args[index + 1];
             try setFieldValue(T, result, field, flag_value, allocated_strings, allocator);
+            try provided_fields.append(field.name);
             return index + 2;
         }
     } else {
@@ -192,6 +207,7 @@ fn parsePositional(
     index: usize,
     diagnostics: *std.ArrayList(Diagnostic),
     allocated_strings: *std.ArrayList([]u8),
+    provided_fields: *std.ArrayList([]const u8),
     allocator: std.mem.Allocator,
 ) !usize {
     // For now, just add a warning about unrecognized positional arguments
@@ -199,6 +215,7 @@ fn parsePositional(
     _ = field_info;
     _ = result;
     _ = allocated_strings;
+    _ = provided_fields;
     
     try diagnostics.append(Diagnostic{
         .level = .warning,
@@ -215,13 +232,70 @@ fn validateRequired(
     field_info: anytype,
     result: T,
     diagnostics: *std.ArrayList(Diagnostic),
+    provided_fields: []const []const u8,
     allocator: std.mem.Allocator,
 ) !void {
-    // This will be implemented when we add field metadata extraction
-    _ = field_info;
-    _ = result;
-    _ = diagnostics;
-    _ = allocator;
+    // Check each field to see if required fields were provided
+    _ = result; // Not needed with provided_fields tracking
+    for (field_info) |field| {
+        if (field.required) {
+            const was_provided = isFieldProvided(field.name, provided_fields);
+            if (!was_provided) {
+                try diagnostics.append(Diagnostic{
+                    .level = .err,
+                    .message = if (field.short) |short_char|
+                        try std.fmt.allocPrint(
+                            allocator,
+                            "Required argument missing: --{s} (-{c})",
+                            .{ field.name, short_char }
+                        )
+                    else
+                        try std.fmt.allocPrint(
+                            allocator,
+                            "Required argument missing: --{s}",
+                            .{field.name}
+                        ),
+                    .suggestion = try std.fmt.allocPrint(
+                        allocator,
+                        "Please provide --{s} with a value",
+                        .{field.name}
+                    ),
+                    .location = null,
+                });
+            }
+        }
+    }
+}
+
+/// Check if a field was provided by looking in the provided_fields list
+fn isFieldProvided(field_name: []const u8, provided_fields: []const []const u8) bool {
+    for (provided_fields) |provided_name| {
+        if (std.mem.eql(u8, field_name, provided_name)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Apply default values for fields that weren't provided
+fn applyDefaults(
+    comptime T: type,
+    field_info: anytype,
+    result: *T,
+    provided_fields: []const []const u8,
+    allocated_strings: *std.ArrayList([]u8),
+    allocator: std.mem.Allocator,
+) !void {
+    // Check each field to see if it has a default value and wasn't provided
+    for (field_info) |field| {
+        if (field.default) |default_value| {
+            const was_provided = isFieldProvided(field.name, provided_fields);
+            if (!was_provided) {
+                // Apply the default value
+                try setFieldValue(T, result, field, default_value, allocated_strings, allocator);
+            }
+        }
+    }
 }
 
 /// Find a field by its long name
@@ -470,4 +544,174 @@ test "parseFrom with integer value" {
     var result = try parseFrom(TestArgs, allocator, &.{"test", "--count", "42"});
     defer result.deinit();
     try std.testing.expect(result.args.@"count|c" == 42);
+}
+
+test "required field validation - missing required field" {
+    const TestArgs = struct {
+        @"config|c!": []const u8 = "", // Required field with empty default
+        @"verbose|v": bool = false,
+    };
+    
+    const allocator = std.testing.allocator;
+    
+    // Test that missing required field generates error diagnostic
+    var result = try parseFrom(TestArgs, allocator, &.{"test", "--verbose"});
+    defer result.deinit();
+    
+    // Should have at least one error diagnostic about missing required field
+    var has_required_error = false;
+    for (result.diagnostics) |diagnostic| {
+        if (diagnostic.level == .err and 
+            std.mem.indexOf(u8, diagnostic.message, "Required argument missing") != null) {
+            has_required_error = true;
+            break;
+        }
+    }
+    
+    try std.testing.expect(has_required_error);
+}
+
+test "required field validation - required field provided" {
+    const TestArgs = struct {
+        @"config|c!": []const u8 = "", // Required field with empty default
+        @"verbose|v": bool = false,
+    };
+    
+    const allocator = std.testing.allocator;
+    
+    // Test that providing required field works without errors
+    var result = try parseFrom(TestArgs, allocator, &.{"test", "--config", "myconfig.txt", "--verbose"});
+    defer result.deinit();
+    
+    // Should have no error diagnostics about missing required fields
+    for (result.diagnostics) |diagnostic| {
+        if (diagnostic.level == .err and 
+            std.mem.indexOf(u8, diagnostic.message, "Required argument missing") != null) {
+            try std.testing.expect(false); // Should not have required field errors
+        }
+    }
+    
+    // Verify the values were parsed correctly
+    try std.testing.expectEqualStrings(result.args.@"config|c!", "myconfig.txt");
+    try std.testing.expect(result.args.@"verbose|v" == true);
+}
+
+test "required field validation - multiple required fields" {
+    const TestArgs = struct {
+        @"config|c!": []const u8 = "", // Required field with empty default
+        @"output|o!": []const u8 = "", // Required field with empty default
+        @"verbose|v": bool = false,
+    };
+    
+    const allocator = std.testing.allocator;
+    
+    // Test missing both required fields
+    var result1 = try parseFrom(TestArgs, allocator, &.{"test", "--verbose"});
+    defer result1.deinit();
+    
+    var required_errors: usize = 0;
+    for (result1.diagnostics) |diagnostic| {
+        if (diagnostic.level == .err and 
+            std.mem.indexOf(u8, diagnostic.message, "Required argument missing") != null) {
+            required_errors += 1;
+        }
+    }
+    
+    try std.testing.expect(required_errors == 2); // Should have errors for both missing fields
+    
+    // Test providing only one required field
+    var result2 = try parseFrom(TestArgs, allocator, &.{"test", "--config", "config.txt", "--verbose"});
+    defer result2.deinit();
+    
+    required_errors = 0;
+    for (result2.diagnostics) |diagnostic| {
+        if (diagnostic.level == .err and 
+            std.mem.indexOf(u8, diagnostic.message, "Required argument missing") != null) {
+            required_errors += 1;
+        }
+    }
+    
+    try std.testing.expect(required_errors == 1); // Should have error for one missing field
+}
+
+test "isFieldProvided helper function" {
+    const provided_fields = [_][]const u8{ "config", "verbose", "output" };
+    
+    // Test fields that are provided
+    try std.testing.expect(isFieldProvided("config", &provided_fields));
+    try std.testing.expect(isFieldProvided("verbose", &provided_fields));
+    try std.testing.expect(isFieldProvided("output", &provided_fields));
+    
+    // Test fields that are not provided
+    try std.testing.expect(!isFieldProvided("missing", &provided_fields));
+    try std.testing.expect(!isFieldProvided("unknown", &provided_fields));
+    try std.testing.expect(!isFieldProvided("", &provided_fields));
+}
+
+test "default value handling - string default" {
+    const TestArgs = struct {
+        @"name|n=DefaultName": []const u8 = "",
+        @"verbose|v": bool = false,
+    };
+    
+    const allocator = std.testing.allocator;
+    
+    // Test that default value is applied when field not provided
+    var result = try parseFrom(TestArgs, allocator, &.{"test", "--verbose"});
+    defer result.deinit();
+    
+    try std.testing.expectEqualStrings(result.args.@"name|n=DefaultName", "DefaultName");
+    try std.testing.expect(result.args.@"verbose|v" == true);
+}
+
+test "default value handling - integer default" {
+    const TestArgs = struct {
+        @"port|p=8080": u16 = 0,
+        @"verbose|v": bool = false,
+    };
+    
+    const allocator = std.testing.allocator;
+    
+    // Test that default value is applied when field not provided
+    var result = try parseFrom(TestArgs, allocator, &.{"test", "--verbose"});
+    defer result.deinit();
+    
+    try std.testing.expect(result.args.@"port|p=8080" == 8080);
+    try std.testing.expect(result.args.@"verbose|v" == true);
+}
+
+test "default value handling - override default" {
+    const TestArgs = struct {
+        @"name|n=DefaultName": []const u8 = "",
+        @"port|p=8080": u16 = 0,
+    };
+    
+    const allocator = std.testing.allocator;
+    
+    // Test that provided values override defaults
+    var result = try parseFrom(TestArgs, allocator, &.{"test", "--name", "CustomName", "--port", "3000"});
+    defer result.deinit();
+    
+    try std.testing.expectEqualStrings(result.args.@"name|n=DefaultName", "CustomName");
+    try std.testing.expect(result.args.@"port|p=8080" == 3000);
+}
+
+test "default value handling - multiple defaults" {
+    const TestArgs = struct {
+        @"host|h=localhost": []const u8 = "",
+        @"port|p=8080": u16 = 0,
+        @"timeout|t=30": u32 = 0,
+        @"verbose|v": bool = false,
+    };
+    
+    const allocator = std.testing.allocator;
+    
+    // Test that all defaults are applied correctly
+    var result = try parseFrom(TestArgs, allocator, &.{"test"});
+    defer result.deinit();
+    
+    try std.testing.expectEqualStrings(result.args.@"host|h=localhost", "localhost");
+    try std.testing.expect(result.args.@"port|p=8080" == 8080);
+    try std.testing.expect(result.args.@"timeout|t=30" == 30);
+    try std.testing.expect(result.args.@"verbose|v" == false);
 }

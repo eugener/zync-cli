@@ -8,9 +8,11 @@ const zync_cli = @import("zync_cli_lib");
 // Define our CLI arguments structure
 const Args = struct {
     @"verbose|v": bool = false,
-    @"name|n": []const u8 = "World",
-    @"count|c": u32 = 1,
+    @"name|n=World": []const u8 = "",
+    @"count|c=1": u32 = 0,
+    @"port|p=8080": u16 = 0,
     @"help|h": bool = false,
+    @"config|f!": []const u8 = "", // Required config file
     
     pub const cli = .{
         .name = "zync-cli-demo",
@@ -61,14 +63,16 @@ pub fn main() !void {
     if (args.@"verbose|v") {
         std.debug.print("Verbose mode enabled\n", .{});
         std.debug.print("Arguments parsed successfully:\n", .{});
-        std.debug.print("  name: {s}\n", .{args.@"name|n"});
-        std.debug.print("  count: {d}\n", .{args.@"count|c"});
+        std.debug.print("  name: {s}\n", .{args.@"name|n=World"});
+        std.debug.print("  count: {d}\n", .{args.@"count|c=1"});
+        std.debug.print("  port: {d}\n", .{args.@"port|p=8080"});
+        std.debug.print("  config: {s}\n", .{args.@"config|f!"});
     }
     
     // Demonstrate the functionality
     var i: u32 = 0;
-    while (i < args.@"count|c") : (i += 1) {
-        std.debug.print("Hello, {s}!\n", .{args.@"name|n"});
+    while (i < args.@"count|c=1") : (i += 1) {
+        std.debug.print("Hello, {s}!\n", .{args.@"name|n=World"});
     }
 }
 
@@ -83,12 +87,12 @@ test "basic library usage" {
 test "demo CLI parsing" {
     const allocator = std.testing.allocator;
     
-    // Test basic parsing
-    var result = try zync_cli.cli.parseFrom(Args, allocator, &.{"demo", "--name", "Test", "-v"});
+    // Test basic parsing with required config field
+    var result = try zync_cli.cli.parseFrom(Args, allocator, &.{"demo", "--name", "Test", "-v", "--config", "test.conf"});
     defer result.deinit();
     
-    
-    try std.testing.expectEqualStrings(result.args.@"name|n", "Test");
+    try std.testing.expectEqualStrings(result.args.@"name|n=World", "Test");
     try std.testing.expect(result.args.@"verbose|v" == true);
-    try std.testing.expect(result.args.@"count|c" == 1); // default value
+    try std.testing.expect(result.args.@"count|c=1" == 1); // default value applied
+    try std.testing.expect(result.args.@"port|p=8080" == 8080); // default value applied
 }

@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-48%2F48%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-64%2F64%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -14,7 +14,7 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Ergonomic DSL** - Intuitive field encoding syntax for CLI definitions
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 48 comprehensive tests covering all functionality
+- **Battle Tested** - 64 comprehensive tests covering all functionality
 - **Self-Documenting** - Automatic help generation from field definitions
 
 ## Quick Start
@@ -40,8 +40,8 @@ const zync_cli = @import("zync-cli");
 
 const Args = struct {
     @"verbose|v": bool = false,
-    @"name|n": []const u8 = "World", 
-    @"count|c": u32 = 1,
+    @"name|n=World": []const u8 = "",
+    @"count|c=1": u32 = 0,
     @"help|h": bool = false,
 };
 
@@ -62,8 +62,8 @@ pub fn main() !void {
     }
     
     var i: u32 = 0;
-    while (i < result.args.@"count|c") : (i += 1) {
-        std.debug.print("Hello, {s}!\n", .{result.args.@"name|n"});
+    while (i < result.args.@"count|c=1") : (i += 1) {
+        std.debug.print("Hello, {s}!\n", .{result.args.@"name|n=World"});
     }
 }
 ```
@@ -262,7 +262,7 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **48 total tests** across all modules
+- **64 total tests** across all modules
 - **Field encoding DSL** parsing and validation
 - **Argument parsing** for all supported types
 - **Error handling** and diagnostic generation
@@ -358,9 +358,12 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 - [x] Help text generation
 - [x] Error handling with diagnostics
 
+### Completed (v0.2.0)
+- [x] Required field validation
+- [x] Default value handling with DSL syntax
+- [x] Comprehensive diagnostics and error reporting
+
 ### In Progress
-- [ ] Required field validation
-- [ ] Default value handling improvements
 - [ ] Advanced field encodings (`*`, `+`, `$`)
 
 ### Planned (v0.2.0)
