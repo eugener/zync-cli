@@ -74,11 +74,19 @@ pub fn ParseResult(comptime T: type) type {
         diagnostics: []const Diagnostic,
         /// Allocator used for memory management
         allocator: std.mem.Allocator,
+        /// List of allocated strings that need to be freed
+        allocated_strings: std.ArrayList([]u8),
         
         const Self = @This();
         
         /// Clean up allocated memory
         pub fn deinit(self: *Self) void {
+            // Clean up allocated strings
+            for (self.allocated_strings.items) |string| {
+                self.allocator.free(string);
+            }
+            self.allocated_strings.deinit();
+            
             // Clean up diagnostics
             for (self.diagnostics) |diagnostic| {
                 self.allocator.free(diagnostic.message);
@@ -157,10 +165,12 @@ test "ParseResult basic functionality" {
     const allocator = std.testing.allocator;
     
     // Test creating a parse result
+    const allocated_strings = std.ArrayList([]u8).init(allocator);
     var result = ParseResult(TestArgs){
         .args = TestArgs{ .verbose = true },
         .diagnostics = &.{},
         .allocator = allocator,
+        .allocated_strings = allocated_strings,
     };
     
     // Test that it doesn't crash on deinit

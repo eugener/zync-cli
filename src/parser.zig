@@ -19,6 +19,7 @@ pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const [
     // Initialize the result structure with defaults
     var result = T{};
     var diagnostics = std.ArrayList(Diagnostic).init(allocator);
+    var allocated_strings = std.ArrayList([]u8).init(allocator);
     
     // Extract field metadata at compile time
     const field_info = comptime meta.extractFields(T);
@@ -34,13 +35,13 @@ pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const [
         
         if (std.mem.startsWith(u8, arg, "--")) {
             // Long flag (--flag or --flag=value)
-            i = try parseLongFlag(T, field_info, &result, cli_args, i, &diagnostics, allocator);
+            i = try parseLongFlag(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, allocator);
         } else if (std.mem.startsWith(u8, arg, "-") and arg.len > 1) {
             // Short flag (-f or -fvalue)
-            i = try parseShortFlag(T, field_info, &result, cli_args, i, &diagnostics, allocator);
+            i = try parseShortFlag(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, allocator);
         } else {
             // Positional argument
-            i = try parsePositional(T, field_info, &result, cli_args, i, &diagnostics, allocator);
+            i = try parsePositional(T, field_info, &result, cli_args, i, &diagnostics, &allocated_strings, allocator);
         }
     }
     
@@ -51,6 +52,7 @@ pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const [
         .args = result,
         .diagnostics = try diagnostics.toOwnedSlice(),
         .allocator = allocator,
+        .allocated_strings = allocated_strings,
     };
 }
 
@@ -62,6 +64,7 @@ fn parseLongFlag(
     args: []const []const u8,
     index: usize,
     diagnostics: *std.ArrayList(Diagnostic),
+    allocated_strings: *std.ArrayList([]u8),
     allocator: std.mem.Allocator,
 ) !usize {
     const arg = args[index];
@@ -75,7 +78,7 @@ fn parseLongFlag(
         // Find the field and set its value
         if (findFieldByName(field_info, flag_name)) |field_index| {
             const field = field_info[field_index];
-            try setFieldValue(T, result, field, flag_value, allocator);
+            try setFieldValue(T, result, field, flag_value, allocated_strings, allocator);
         } else {
             try diagnostics.append(Diagnostic{
                 .level = .err,
@@ -97,7 +100,7 @@ fn parseLongFlag(
             const field = field_info[field_index];
             if (isBooleanField(T, field)) {
                 // Boolean flag, set to true
-                try setFieldValue(T, result, field, "true", allocator);
+                try setFieldValue(T, result, field, "true", allocated_strings, allocator);
                 return index + 1;
             } else {
                 // Flag requires a value, get it from next argument
@@ -111,7 +114,7 @@ fn parseLongFlag(
                 }
                 
                 const flag_value = args[index + 1];
-                try setFieldValue(T, result, field, flag_value, allocator);
+                try setFieldValue(T, result, field, flag_value, allocated_strings, allocator);
                 return index + 2;
             }
         } else {
@@ -137,6 +140,7 @@ fn parseShortFlag(
     args: []const []const u8,
     index: usize,
     diagnostics: *std.ArrayList(Diagnostic),
+    allocated_strings: *std.ArrayList([]u8),
     allocator: std.mem.Allocator,
 ) !usize {
     const arg = args[index];
@@ -148,11 +152,11 @@ fn parseShortFlag(
         if (arg.len > 2) {
             // Value embedded in flag (-fvalue)
             const flag_value = arg[2..];
-            try setFieldValue(T, result, field, flag_value, allocator);
+            try setFieldValue(T, result, field, flag_value, allocated_strings, allocator);
             return index + 1;
         } else if (isBooleanField(T, field)) {
             // Boolean flag
-            try setFieldValue(T, result, field, "true", allocator);
+            try setFieldValue(T, result, field, "true", allocated_strings, allocator);
             return index + 1;
         } else {
             // Flag requires a value from next argument
@@ -166,7 +170,7 @@ fn parseShortFlag(
             }
             
             const flag_value = args[index + 1];
-            try setFieldValue(T, result, field, flag_value, allocator);
+            try setFieldValue(T, result, field, flag_value, allocated_strings, allocator);
             return index + 2;
         }
     } else {
@@ -187,12 +191,14 @@ fn parsePositional(
     args: []const []const u8,
     index: usize,
     diagnostics: *std.ArrayList(Diagnostic),
+    allocated_strings: *std.ArrayList([]u8),
     allocator: std.mem.Allocator,
 ) !usize {
     // For now, just add a warning about unrecognized positional arguments
     // This will be implemented properly when we add positional argument support
     _ = field_info;
     _ = result;
+    _ = allocated_strings;
     
     try diagnostics.append(Diagnostic{
         .level = .warning,
@@ -266,11 +272,11 @@ fn isBooleanField(comptime T: type, field: types.FieldMetadata) bool {
 }
 
 /// Set a field value from a string
-fn setFieldValue(comptime T: type, result: *T, field: types.FieldMetadata, value: []const u8, allocator: std.mem.Allocator) !void {
+fn setFieldValue(comptime T: type, result: *T, field: types.FieldMetadata, value: []const u8, allocated_strings: *std.ArrayList([]u8), allocator: std.mem.Allocator) !void {
     // For now, implement basic type conversion
     // This will be expanded to handle all types properly
     
-    _ = allocator; // Will be used for string allocation later
+    // allocator is used for string allocation in setFieldValue
     
     const type_info = @typeInfo(T);
     if (type_info != .@"struct") {
@@ -303,9 +309,10 @@ fn setFieldValue(comptime T: type, result: *T, field: types.FieldMetadata, value
                 },
                 .pointer => |ptr| {
                     if (ptr.size == .slice and ptr.child == u8) {
-                        // String type - for now just reference the input
-                        // TODO: Properly allocate and manage string memory
-                        field_ptr.* = value;
+                        // String type - allocate and copy the string for safety
+                        const copied_string = try allocator.dupe(u8, value);
+                        try allocated_strings.append(copied_string);
+                        field_ptr.* = copied_string;
                     }
                 },
                 .optional => |opt| {
@@ -313,7 +320,10 @@ fn setFieldValue(comptime T: type, result: *T, field: types.FieldMetadata, value
                     switch (@typeInfo(opt.child)) {
                         .pointer => |ptr| {
                             if (ptr.size == .slice and ptr.child == u8) {
-                                field_ptr.* = value;
+                                // Optional string type - allocate and copy
+                                const copied_string = try allocator.dupe(u8, value);
+                                try allocated_strings.append(copied_string);
+                                field_ptr.* = copied_string;
                             }
                         },
                         else => {
