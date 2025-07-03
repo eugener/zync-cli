@@ -25,11 +25,11 @@ pub fn parseAndCleanup(comptime T: type, args: []const []const u8) !T {
 /// Expect that parsing succeeds and returns the expected result
 pub fn expectParse(comptime T: type, args: []const []const u8, expected: T) !void {
     const result = try parseAndCleanup(T, args);
-    try expectEqual(T, expected, result);
+    try expectEqualValues(T, expected, result);
 }
 
 /// Expect that parsing fails with the specified error
-pub fn expectError(expected_error: ParseError, comptime T: type, args: []const []const u8) !void {
+pub fn expectParseError(expected_error: ParseError, comptime T: type, args: []const []const u8) !void {
     const result = parse(T, args);
     try std.testing.expectError(expected_error, result);
 }
@@ -43,7 +43,7 @@ pub fn expectDiagnostics(comptime T: type, args: []const []const u8, expected_co
 }
 
 /// Compare two values of the same type for equality
-fn expectEqual(comptime T: type, expected: T, actual: T) !void {
+fn expectEqualValues(comptime T: type, expected: T, actual: T) !void {
     const type_info = @typeInfo(T);
     
     switch (type_info) {
@@ -51,7 +51,7 @@ fn expectEqual(comptime T: type, expected: T, actual: T) !void {
             inline for (struct_info.fields) |field| {
                 const expected_field = @field(expected, field.name);
                 const actual_field = @field(actual, field.name);
-                try expectEqual(field.type, expected_field, actual_field);
+                try expectEqualValues(field.type, expected_field, actual_field);
             }
         },
         .bool => {
@@ -77,7 +77,7 @@ fn expectEqual(comptime T: type, expected: T, actual: T) !void {
             if (expected == null or actual == null) {
                 try std.testing.expect(false); // One is null, other isn't
             }
-            try expectEqual(@TypeOf(expected.?), expected.?, actual.?);
+            try expectEqualValues(@TypeOf(expected.?), expected.?, actual.?);
         },
         .@"enum" => {
             try std.testing.expect(expected == actual);
@@ -127,19 +127,19 @@ test "expectEqual struct" {
     const expected = TestArgs{ .verbose = true, .count = 42 };
     const actual = TestArgs{ .verbose = true, .count = 42 };
     
-    try expectEqual(TestArgs, expected, actual);
+    try expectEqualValues(TestArgs, expected, actual);
 }
 
 test "expectEqual string" {
-    try expectEqual([]const u8, "hello", "hello");
+    try expectEqualValues([]const u8, "hello", "hello");
 }
 
 test "expectEqual optional" {
     const expected: ?u32 = 42;
     const actual: ?u32 = 42;
-    try expectEqual(?u32, expected, actual);
+    try expectEqualValues(?u32, expected, actual);
     
     const expected_null: ?u32 = null;
     const actual_null: ?u32 = null;
-    try expectEqual(?u32, expected_null, actual_null);
+    try expectEqualValues(?u32, expected_null, actual_null);
 }

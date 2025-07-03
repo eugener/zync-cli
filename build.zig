@@ -107,10 +107,69 @@ pub fn build(b: *std.Build) void {
 
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
+    // Individual module tests
+    const parser_tests = b.addTest(.{
+        .root_source_file = b.path("src/parser.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    const types_tests = b.addTest(.{
+        .root_source_file = b.path("src/types.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    const meta_tests = b.addTest(.{
+        .root_source_file = b.path("src/meta.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    const help_tests = b.addTest(.{
+        .root_source_file = b.path("src/help.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    
+    const testing_tests = b.addTest(.{
+        .root_source_file = b.path("src/testing.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Test runners for individual modules
+    const run_parser_tests = b.addRunArtifact(parser_tests);
+    const run_types_tests = b.addRunArtifact(types_tests);
+    const run_meta_tests = b.addRunArtifact(meta_tests);
+    const run_help_tests = b.addRunArtifact(help_tests);
+    const run_testing_tests = b.addRunArtifact(testing_tests);
+
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
     // running the unit tests.
-    const test_step = b.step("test", "Run unit tests");
+    const test_step = b.step("test", "Run all unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+    test_step.dependOn(&run_parser_tests.step);
+    test_step.dependOn(&run_types_tests.step);
+    test_step.dependOn(&run_meta_tests.step);
+    test_step.dependOn(&run_help_tests.step);
+    test_step.dependOn(&run_testing_tests.step);
+
+    // Individual test steps for selective testing
+    const test_parser_step = b.step("test-parser", "Run parser module tests");
+    test_parser_step.dependOn(&run_parser_tests.step);
+    
+    const test_types_step = b.step("test-types", "Run types module tests");
+    test_types_step.dependOn(&run_types_tests.step);
+    
+    const test_meta_step = b.step("test-meta", "Run meta module tests");
+    test_meta_step.dependOn(&run_meta_tests.step);
+    
+    const test_help_step = b.step("test-help", "Run help module tests");
+    test_help_step.dependOn(&run_help_tests.step);
+    
+    const test_testing_step = b.step("test-testing", "Run testing module tests");
+    test_testing_step.dependOn(&run_testing_tests.step);
 }
