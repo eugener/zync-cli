@@ -31,7 +31,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     
     // Parse command line arguments
-    var result = zync_cli.cli.parse(Args, allocator) catch |err| switch (err) {
+    var result = zync_cli.parse(Args, allocator) catch |err| switch (err) {
         error.UnknownFlag, error.MissingValue, error.InvalidValue => {
             std.debug.print("Error parsing arguments. Use --help for usage information.\n", .{});
             return;
@@ -44,7 +44,7 @@ pub fn main() !void {
     
     // Handle help flag
     if (args.@"help|h") {
-        const help_text = zync_cli.cli.help(Args);
+        const help_text = zync_cli.help(Args);
         std.debug.print("{s}\n", .{help_text});
         return;
     }
@@ -88,7 +88,7 @@ test "demo CLI parsing" {
     const allocator = std.testing.allocator;
     
     // Test basic parsing with required config field
-    var result = try zync_cli.cli.parseFrom(Args, allocator, &.{"demo", "--name", "Test", "-v", "--config", "test.conf"});
+    var result = try zync_cli.parseFrom(Args, allocator, &.{"demo", "--name", "Test", "-v", "--config", "test.conf"});
     defer result.deinit();
     
     try std.testing.expectEqualStrings(result.args.@"name|n=World", "Test");

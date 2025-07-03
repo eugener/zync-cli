@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-64%2F64%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-86%2F86%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -14,7 +14,7 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Ergonomic DSL** - Intuitive field encoding syntax for CLI definitions
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 64 comprehensive tests covering all functionality
+- **Battle Tested** - 86 comprehensive tests covering all functionality
 - **Self-Documenting** - Automatic help generation from field definitions
 
 ## Quick Start
@@ -49,11 +49,11 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{});
     defer _ = gpa.deinit();
     
-    var result = try zync_cli.cli.parse(Args, gpa.allocator());
+    var result = try zync_cli.parse(Args, gpa.allocator());
     defer result.deinit(); // Automatic cleanup
     
     if (result.args.@"help|h") {
-        std.debug.print("{s}\n", .{zync_cli.cli.help(Args)});
+        std.debug.print("{s}\n", .{zync_cli.help(Args)});
         return;
     }
     
@@ -152,36 +152,44 @@ Zync-CLI supports a wide range of Zig types with automatic conversion:
 
 ### Core Functions
 
-#### `cli.parse(T, allocator)`
+#### `parse(T, allocator)`
 Parse command-line arguments into struct of type `T`.
 
 ```zig
-var result = try zync_cli.cli.parse(Args, allocator);
+var result = try zync_cli.parse(Args, allocator);
 defer result.deinit();
 ```
 
-#### `cli.parseFrom(T, allocator, args)`
+#### `parseFrom(T, allocator, args)`
 Parse from custom argument array.
 
 ```zig
 const args = &.{"myapp", "--verbose", "--name", "Alice"};
-var result = try zync_cli.cli.parseFrom(Args, allocator, args);
+var result = try zync_cli.parseFrom(Args, allocator, args);
 defer result.deinit();
 ```
 
-#### `cli.help(T)`
+#### `help(T)`
 Generate help text for struct type `T`.
 
 ```zig
-const help_text = zync_cli.cli.help(Args);
+const help_text = zync_cli.help(Args);
 std.debug.print("{s}\n", .{help_text});
 ```
 
-#### `cli.validate(T)`
+#### `validate(T)`
 Compile-time validation of struct definition.
 
 ```zig
-comptime zync_cli.cli.validate(Args); // Validates at compile time
+comptime zync_cli.validate(Args); // Validates at compile time
+```
+
+#### Legacy API (Backward Compatible)
+The old verbose API is still available for backward compatibility:
+
+```zig
+var result = try zync_cli.cli.parse(Args, allocator);  // Still works
+const help_text = zync_cli.cli.help(Args);            // Still works
 ```
 
 ### ParseResult
@@ -201,7 +209,7 @@ const ParseResult = struct {
 ### Error Handling
 
 ```zig
-var result = zync_cli.cli.parse(Args, allocator) catch |err| switch (err) {
+var result = zync_cli.parse(Args, allocator) catch |err| switch (err) {
     error.UnknownFlag => {
         std.debug.print("Unknown flag provided. Use --help for usage.\n", .{});
         return;
@@ -262,7 +270,7 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **64 total tests** across all modules
+- **86 total tests** across all modules
 - **Field encoding DSL** parsing and validation
 - **Argument parsing** for all supported types
 - **Error handling** and diagnostic generation
@@ -277,7 +285,7 @@ Zync-CLI provides automatic, leak-free memory management:
 ### Automatic Cleanup
 
 ```zig
-var result = try zync_cli.cli.parse(Args, allocator);
+var result = try zync_cli.parse(Args, allocator);
 defer result.deinit(); // Automatically frees all allocated memory
 // No manual string cleanup required!
 ```
