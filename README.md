@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-102%2F102%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-119%2F119%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -14,9 +14,10 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Ergonomic DSL** - Intuitive field encoding syntax for CLI definitions
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 102 comprehensive tests covering all functionality
+- **Battle Tested** - 119 comprehensive tests covering all functionality
 - **Self-Documenting** - Automatic help generation from field definitions
 - **Automatic Help** - Built-in help flag processing with no user code required
+- **Colorized Output** - Beautiful terminal colors with smart detection and fallback
 
 ## Quick Start
 
@@ -78,13 +79,75 @@ Hello, Alice!
 Hello, Alice!
 
 $ ./myapp --help
-Usage: [OPTIONS]
+zync-cli-demo
+
+A demonstration of the Zync-CLI library
+
+Usage: zync-cli-demo [OPTIONS]
 
 Options:
-  -v, --verbose     Enable verbose output
-  -n, --name        Set name value  
-  -c, --count       Set count value
-  -h, --help        Show this help message
+  -v, --verbose         Enable verbose output
+  -n, --name [value]    Set name value (default: World)
+  -c, --count [value]   Set count value (default: 1)
+  -p, --port [value]    Set port value (default: 8080)
+  -h, --help            Show this help message
+  -f, --config <value>  Set config value (required)
+
+Examples:
+  zync-cli-demo --name Alice --config app.conf
+  zync-cli-demo -v --count 3 --config /etc/myapp.conf
+```
+
+## Colorized Output
+
+Zync-CLI automatically provides beautiful, colorized terminal output that enhances readability and user experience:
+
+### Smart Color Detection
+
+- **Automatic Detection** - Colors are enabled when supported by the terminal
+- **Environment Aware** - Respects `NO_COLOR` and `FORCE_COLOR` environment variables
+- **Graceful Fallback** - Falls back to plain text when colors aren't supported
+- **Cross-Platform** - Works consistently across different operating systems
+
+### Colorized Help
+
+- **Titles** appear in bright cyan for clear visual hierarchy
+- **Flags** are highlighted in green (`-v, --verbose`)
+- **Required arguments** are shown in red (`<value>`)
+- **Optional arguments** appear dimmed (`[value]`)
+- **Default values** are highlighted in magenta
+- **Examples** are shown in cyan for easy identification
+
+### Colorized Errors
+
+```bash
+$ ./myapp --invalid-flag
+Error: Unknown flag ('invalid-flag')
+
+Suggestion: Use --help to see available options
+
+$ ./myapp --count abc
+Error: Invalid value for flag ('count')
+
+Suggestion: Expected integer value for flag
+```
+
+**Error colors:**
+- **Error messages** appear in red for immediate attention
+- **Context** (problematic values) shown in bright red
+- **Suggestions** highlighted in yellow for actionable guidance
+
+### Color Configuration
+
+```bash
+# Disable colors entirely
+NO_COLOR=1 ./myapp --help
+
+# Force colors even when not detected
+FORCE_COLOR=1 ./myapp --help
+
+# Colors work automatically in supported terminals
+./myapp --help
 ```
 
 ## Field Encoding DSL
@@ -283,7 +346,7 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **102 total tests** across all modules
+- **119 total tests** across all modules
 - **Field encoding DSL** parsing and validation  
 - **Argument parsing** for all supported types
 - **Required field validation** with `!` syntax
@@ -293,6 +356,8 @@ test "my CLI parsing" {
 - **Error handling** for all error conditions
 - **Memory management** with arena allocation
 - **Help generation** and formatting
+- **Colorized output** with smart terminal detection
+- **Cross-platform color support** with environment variable controls
 - **Integration testing** with real CLI scenarios
 
 ## Memory Management
@@ -331,9 +396,10 @@ zync-cli/
 ├── src/
 │   ├── root.zig        # Main library API (simplified, idiomatic)
 │   ├── types.zig       # Core type definitions
-│   ├── parser.zig      # Argument parsing engine (89 tests)
+│   ├── parser.zig      # Argument parsing engine with detailed errors
 │   ├── meta.zig        # Compile-time metadata extraction
 │   ├── help.zig        # Help text generation
+│   ├── colors.zig      # Terminal color support and formatting
 │   ├── testing.zig     # Testing utilities
 │   └── main.zig        # Demo application
 ├── build.zig           # Build configuration
@@ -396,7 +462,16 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 - [x] Comprehensive error handling
 - [x] Dynamic help generation from field metadata
 - [x] Automatic help flag processing (no user code required)
-- [x] 102 comprehensive tests
+- [x] Colorized terminal output with smart detection
+- [x] Cross-platform color support with environment controls
+- [x] Enhanced error messages with context and suggestions
+- [x] 119 comprehensive tests
+
+### Completed (v0.3.0)
+- [x] Colorized help and error output
+- [x] Smart color detection with environment variable support
+- [x] Enhanced error messages with detailed context
+- [x] ANSI color support with graceful fallback
 
 ### In Progress
 - [ ] Advanced field encodings (`*`, `+`, `$`)

@@ -8,6 +8,65 @@ const std = @import("std");
 /// Errors that can occur during argument parsing (moved to parser.zig)
 pub const ParseError = @import("parser.zig").ParseError;
 
+/// Detailed error information for parsing failures
+pub const DetailedParseError = struct {
+    /// The basic error type
+    error_type: ParseError,
+    /// Detailed human-readable message
+    message: []const u8,
+    /// The problematic argument or flag
+    context: ?[]const u8 = null,
+    /// Suggestion for fixing the issue
+    suggestion: ?[]const u8 = null,
+    /// Available alternatives (for unknown flags)
+    alternatives: ?[]const []const u8 = null,
+    /// Location information if available
+    location: ?Location = null,
+    
+    /// Format the error as a complete message
+    pub fn format(self: DetailedParseError, allocator: std.mem.Allocator) ![]const u8 {
+        var parts = std.ArrayList([]const u8).init(allocator);
+        defer parts.deinit();
+        
+        // Add main error message
+        try parts.append(self.message);
+        
+        // Add context if available
+        if (self.context) |ctx| {
+            const context_msg = try std.fmt.allocPrint(allocator, " ('{s}')", .{ctx});
+            try parts.append(context_msg);
+        }
+        
+        // Add suggestion if available
+        if (self.suggestion) |suggestion| {
+            const suggestion_msg = try std.fmt.allocPrint(allocator, "\n\nSuggestion: {s}", .{suggestion});
+            try parts.append(suggestion_msg);
+        }
+        
+        // Add alternatives if available
+        if (self.alternatives) |alts| {
+            if (alts.len > 0) {
+                const alt_header = "\n\nDid you mean one of these?";
+                try parts.append(alt_header);
+                for (alts) |alt| {
+                    const alt_msg = try std.fmt.allocPrint(allocator, "\n  --{s}", .{alt});
+                    try parts.append(alt_msg);
+                }
+            }
+        }
+        
+        return try std.mem.join(allocator, "", parts.items);
+    }
+    
+    /// Location information for errors
+    pub const Location = struct {
+        /// Index of the argument in the argv array
+        arg_index: usize,
+        /// Character index within the argument
+        char_index: usize,
+    };
+};
+
 /// Diagnostic information about parsing issues
 pub const Diagnostic = struct {
     /// Severity level of the diagnostic

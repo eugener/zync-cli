@@ -5,6 +5,8 @@
 const std = @import("std");
 const meta = @import("meta.zig");
 const help = @import("help.zig");
+const types = @import("types.zig");
+const colors = @import("colors.zig");
 
 /// Errors that can occur during argument parsing
 pub const ParseError = error{
@@ -28,6 +30,13 @@ pub const ParseError = error{
 
 /// Parse arguments from a string array into the specified type
 pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !T {
+    return parseFromWithDetails(T, allocator, args) catch |err| {
+        return err;
+    };
+}
+
+/// Parse arguments with detailed error information
+pub fn parseFromWithDetails(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !T {
     // Validate the structure at compile time
     comptime meta.validate(T);
     
@@ -68,7 +77,7 @@ pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const [
     try applyDefaults(T, field_info, &result, provided_fields.items, allocator);
     
     // Check for missing required arguments
-    try validateRequired(T, field_info, result, provided_fields.items);
+    try validateRequired(T, field_info, result, provided_fields.items, allocator);
     
     return result;
 }
@@ -97,6 +106,9 @@ fn parseLongFlag(
             try setFieldValue(T, result, field, flag_value, allocator);
             try provided_fields.append(field.name);
         } else {
+            // Create detailed error with suggestions
+            const detailed_error = try createUnknownFlagError(T, flag_name, allocator);
+            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
             return ParseError.UnknownFlag;
         }
         
@@ -115,6 +127,8 @@ fn parseLongFlag(
             } else {
                 // Flag requires a value, get it from next argument
                 if (index + 1 >= args.len) {
+                    const detailed_error = try createMissingValueError(flag_name, allocator);
+                    colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                     return ParseError.MissingValue;
                 }
                 
@@ -124,6 +138,9 @@ fn parseLongFlag(
                 return index + 2;
             }
         } else {
+            // Create detailed error with suggestions
+            const detailed_error = try createUnknownFlagError(T, flag_name, allocator);
+            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
             return ParseError.UnknownFlag;
         }
     }
@@ -160,6 +177,9 @@ fn parseShortFlag(
         } else {
             // Value in next argument
             if (index + 1 >= args.len) {
+                const flag_name = try std.fmt.allocPrint(allocator, "{c}", .{flag_char});
+                const detailed_error = try createMissingValueError(flag_name, allocator);
+                colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 return ParseError.MissingValue;
             }
             
@@ -169,6 +189,9 @@ fn parseShortFlag(
             return index + 2;
         }
     } else {
+        const flag_name = try std.fmt.allocPrint(allocator, "{c}", .{flag_char});
+        const detailed_error = try createUnknownFlagError(T, flag_name, allocator);
+        colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
         return ParseError.UnknownFlag;
     }
 }
@@ -279,13 +302,25 @@ fn setFieldValue(comptime T: type, result: *T, field: meta.FieldMetadata, value:
                         field_ptr.* = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
                     },
                     u8, u16, u32, u64, usize => {
-                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch return ParseError.InvalidValue;
+                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch {
+                            const detailed_error = try createInvalidValueError(field.name, value, "integer", allocator);
+                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                            return ParseError.InvalidValue;
+                        };
                     },
                     i8, i16, i32, i64, isize => {
-                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch return ParseError.InvalidValue;
+                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch {
+                            const detailed_error = try createInvalidValueError(field.name, value, "integer", allocator);
+                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                            return ParseError.InvalidValue;
+                        };
                     },
                     f32, f64 => {
-                        field_ptr.* = std.fmt.parseFloat(struct_field.type, value) catch return ParseError.InvalidValue;
+                        field_ptr.* = std.fmt.parseFloat(struct_field.type, value) catch {
+                            const detailed_error = try createInvalidValueError(field.name, value, "number", allocator);
+                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                            return ParseError.InvalidValue;
+                        };
                     },
                     []const u8 => {
                         field_ptr.* = try allocator.dupe(u8, value);
@@ -307,13 +342,25 @@ fn setFieldValue(comptime T: type, result: *T, field: meta.FieldMetadata, value:
                         field_ptr.* = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
                     },
                     u8, u16, u32, u64, usize => {
-                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch return ParseError.InvalidValue;
+                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch {
+                            const detailed_error = try createInvalidValueError(field.name, value, "integer", allocator);
+                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                            return ParseError.InvalidValue;
+                        };
                     },
                     i8, i16, i32, i64, isize => {
-                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch return ParseError.InvalidValue;
+                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch {
+                            const detailed_error = try createInvalidValueError(field.name, value, "integer", allocator);
+                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                            return ParseError.InvalidValue;
+                        };
                     },
                     f32, f64 => {
-                        field_ptr.* = std.fmt.parseFloat(struct_field.type, value) catch return ParseError.InvalidValue;
+                        field_ptr.* = std.fmt.parseFloat(struct_field.type, value) catch {
+                            const detailed_error = try createInvalidValueError(field.name, value, "number", allocator);
+                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                            return ParseError.InvalidValue;
+                        };
                     },
                     []const u8 => {
                         field_ptr.* = try allocator.dupe(u8, value);
@@ -348,7 +395,7 @@ fn applyDefaults(comptime T: type, field_info: anytype, result: *T, provided: []
 }
 
 /// Validate required fields
-fn validateRequired(comptime T: type, field_info: anytype, result: T, provided: []const []const u8) !void {
+fn validateRequired(comptime T: type, field_info: anytype, result: T, provided: []const []const u8, allocator: std.mem.Allocator) !void {
     _ = result;
     for (field_info) |field| {
         if (field.required) {
@@ -361,10 +408,23 @@ fn validateRequired(comptime T: type, field_info: anytype, result: T, provided: 
             }
             
             if (!is_provided) {
+                const detailed_error = try createMissingRequiredError(field.name, allocator);
+                colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 return ParseError.MissingRequiredArgument;
             }
         }
     }
+}
+
+/// Check if a field name represents a help field
+fn isHelpField(field_name: []const u8) bool {
+    return std.mem.eql(u8, field_name, "help") or std.mem.eql(u8, field_name, "h");
+}
+
+/// Helper function to handle help request and exit
+fn handleHelpRequest(comptime T: type) !void {
+    help.printHelp(T);
+    return ParseError.HelpRequested;
 }
 
 /// Check if help was requested and handle it automatically
@@ -376,36 +436,31 @@ fn checkForHelpRequest(comptime T: type, args: []const []const u8) !void {
     for (args) |arg| {
         if (std.mem.startsWith(u8, arg, "--")) {
             const flag_name = arg[2..];
-            // Check for common help flags
-            if (std.mem.eql(u8, flag_name, "help") or std.mem.eql(u8, flag_name, "h")) {
-                printHelpAndExit(T);
-                return ParseError.HelpRequested;
+            
+            // Check if this is a help flag (either common or struct-defined)
+            if (isHelpField(flag_name)) {
+                return handleHelpRequest(T);
             }
             
-            // Check against struct-defined help flags
+            // Check if any struct field with this name is a help field
             inline for (field_info) |field| {
-                if (std.mem.eql(u8, field.name, "help") or std.mem.eql(u8, field.name, "h")) {
-                    if (std.mem.eql(u8, flag_name, field.name)) {
-                        printHelpAndExit(T);
-                        return ParseError.HelpRequested;
-                    }
+                if (std.mem.eql(u8, field.name, flag_name) and isHelpField(field.name)) {
+                    return handleHelpRequest(T);
                 }
             }
         } else if (std.mem.startsWith(u8, arg, "-") and arg.len == 2) {
             const flag_char = arg[1];
-            // Check for common short help flag
+            
+            // Check common short help flag
             if (flag_char == 'h') {
-                printHelpAndExit(T);
-                return ParseError.HelpRequested;
+                return handleHelpRequest(T);
             }
             
-            // Check against struct-defined short help flags
+            // Check struct-defined short help flags
             inline for (field_info) |field| {
                 if (field.short) |short| {
-                    if ((std.mem.eql(u8, field.name, "help") or std.mem.eql(u8, field.name, "h")) and
-                        flag_char == short) {
-                        printHelpAndExit(T);
-                        return ParseError.HelpRequested;
+                    if (flag_char == short and isHelpField(field.name)) {
+                        return handleHelpRequest(T);
                     }
                 }
             }
@@ -413,10 +468,99 @@ fn checkForHelpRequest(comptime T: type, args: []const []const u8) !void {
     }
 }
 
-/// Print help text and indicate program should exit
-fn printHelpAndExit(comptime T: type) void {
-    const help_text = help.generate(T);
-    std.debug.print("{s}\n", .{help_text});
+
+/// Calculate edit distance between two strings (for suggestions)
+fn editDistance(str1: []const u8, str2: []const u8) usize {
+    if (str1.len == 0) return str2.len;
+    if (str2.len == 0) return str1.len;
+    
+    var prev_row = std.ArrayList(usize).init(std.heap.page_allocator);
+    defer prev_row.deinit();
+    var curr_row = std.ArrayList(usize).init(std.heap.page_allocator);
+    defer curr_row.deinit();
+    
+    prev_row.appendNTimes(0, str2.len + 1) catch return str1.len + str2.len;
+    curr_row.appendNTimes(0, str2.len + 1) catch return str1.len + str2.len;
+    
+    for (0..str2.len + 1) |i| {
+        prev_row.items[i] = i;
+    }
+    
+    for (str1, 0..) |c1, i| {
+        curr_row.items[0] = i + 1;
+        for (str2, 0..) |c2, j| {
+            const cost = if (c1 == c2) @as(usize, 0) else @as(usize, 1);
+            curr_row.items[j + 1] = @min(@min(
+                curr_row.items[j] + 1,      // insertion
+                prev_row.items[j + 1] + 1), // deletion
+                prev_row.items[j] + cost);  // substitution
+        }
+        std.mem.swap(std.ArrayList(usize), &prev_row, &curr_row);
+    }
+    
+    return prev_row.items[str2.len];
+}
+
+/// Find suggestions for unknown flags
+fn findSuggestions(comptime T: type, unknown_flag: []const u8, allocator: std.mem.Allocator) ![]const []const u8 {
+    const field_info = comptime meta.extractFields(T);
+    var suggestions = std.ArrayList([]const u8).init(allocator);
+    
+    for (field_info) |field| {
+        const distance = editDistance(unknown_flag, field.name);
+        if (distance <= 2 and distance < unknown_flag.len) {
+            try suggestions.append(field.name);
+        }
+    }
+    
+    return suggestions.toOwnedSlice();
+}
+
+/// Create detailed error message for unknown flag
+fn createUnknownFlagError(comptime T: type, flag: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
+    const suggestions = try findSuggestions(T, flag, allocator);
+    
+    return types.DetailedParseError{
+        .error_type = ParseError.UnknownFlag,
+        .message = "Unknown flag",
+        .context = flag,
+        .suggestion = "Use --help to see available options",
+        .alternatives = if (suggestions.len > 0) suggestions else null,
+    };
+}
+
+/// Create detailed error message for missing value
+fn createMissingValueError(flag: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
+    _ = allocator;
+    return types.DetailedParseError{
+        .error_type = ParseError.MissingValue,
+        .message = "Flag requires a value",
+        .context = flag,
+        .suggestion = "Provide a value after the flag (e.g., --flag=value or --flag value)",
+    };
+}
+
+/// Create detailed error message for invalid value
+fn createInvalidValueError(flag: []const u8, value: []const u8, expected_type: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
+    _ = value; // Not currently used but may be useful for logging
+    const suggestion = try std.fmt.allocPrint(allocator, "Expected {s} value for flag", .{expected_type});
+    return types.DetailedParseError{
+        .error_type = ParseError.InvalidValue,
+        .message = "Invalid value for flag",
+        .context = flag,
+        .suggestion = suggestion,
+    };
+}
+
+/// Create detailed error message for missing required argument
+fn createMissingRequiredError(field_name: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
+    const suggestion = try std.fmt.allocPrint(allocator, "The --{s} flag is required", .{field_name});
+    return types.DetailedParseError{
+        .error_type = ParseError.MissingRequiredArgument,
+        .message = "Missing required argument",
+        .context = field_name,
+        .suggestion = suggestion,
+    };
 }
 
 test "parse simple arguments" {
@@ -649,4 +793,66 @@ test "automatic help handling - custom help field" {
     const result = parseFrom(TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.HelpRequested, result);
+}
+
+test "detailed error messages - unknown flag" {
+    const TestArgs = struct {
+        @"verbose|v": bool = false,
+        @"name|n": []const u8 = "",
+    };
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    // This should produce a detailed error message about unknown flag
+    const test_args = &.{"--unknown"};
+    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectError(ParseError.UnknownFlag, result);
+}
+
+test "detailed error messages - missing value" {
+    const TestArgs = struct {
+        @"name|n": []const u8 = "",
+    };
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    // This should produce a detailed error message about missing value
+    const test_args = &.{"--name"};
+    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectError(ParseError.MissingValue, result);
+}
+
+test "detailed error messages - invalid value" {
+    const TestArgs = struct {
+        @"count|c": u32 = 0,
+    };
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    // This should produce a detailed error message about invalid integer value
+    const test_args = &.{"--count", "not-a-number"};
+    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectError(ParseError.InvalidValue, result);
+}
+
+test "detailed error messages - missing required argument" {
+    const TestArgs = struct {
+        @"config|c!": []const u8 = "",
+        @"verbose|v": bool = false,
+    };
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    // This should produce a detailed error message about missing required argument
+    const test_args = &.{"--verbose"};
+    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectError(ParseError.MissingRequiredArgument, result);
 }

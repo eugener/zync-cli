@@ -36,8 +36,9 @@ pub fn main() !void {
             return;
         },
         error.UnknownFlag, error.MissingValue, error.InvalidValue, error.MissingRequiredArgument => {
-            std.debug.print("Error parsing arguments. Use --help for usage information.\n", .{});
-            return;
+            // Detailed error message was already displayed by the parser
+            // Just exit with error code
+            std.process.exit(1);
         },
         else => return err,
     };
