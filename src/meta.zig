@@ -7,7 +7,7 @@ const std = @import("std");
 const types = @import("types.zig");
 const builtin = @import("builtin");
 
-const FieldMetadata = types.FieldMetadata;
+pub const FieldMetadata = types.FieldMetadata;
 
 /// Validate a type's structure for CLI argument parsing
 pub fn validate(comptime T: type) void {

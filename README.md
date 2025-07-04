@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-86%2F86%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-89%2F89%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -14,7 +14,7 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Ergonomic DSL** - Intuitive field encoding syntax for CLI definitions
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 86 comprehensive tests covering all functionality
+- **Battle Tested** - 89 comprehensive tests covering all functionality
 - **Self-Documenting** - Automatic help generation from field definitions
 
 ## Quick Start
@@ -46,24 +46,23 @@ const Args = struct {
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{});
-    defer _ = gpa.deinit();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
     
-    var result = try zync_cli.parse(Args, gpa.allocator());
-    defer result.deinit(); // Automatic cleanup
+    const args = try zync_cli.parseProcess(Args, arena.allocator());
     
-    if (result.args.@"help|h") {
+    if (args.@"help|h") {
         std.debug.print("{s}\n", .{zync_cli.help(Args)});
         return;
     }
     
-    if (result.args.@"verbose|v") {
+    if (args.@"verbose|v") {
         std.debug.print("Verbose mode enabled!\n", .{});
     }
     
     var i: u32 = 0;
-    while (i < result.args.@"count|c=1") : (i += 1) {
-        std.debug.print("Hello, {s}!\n", .{result.args.@"name|n=World"});
+    while (i < args.@"count|c=1") : (i += 1) {
+        std.debug.print("Hello, {s}!\n", .{args.@"name|n=World"});
     }
 }
 ```
@@ -152,21 +151,27 @@ Zync-CLI supports a wide range of Zig types with automatic conversion:
 
 ### Core Functions
 
-#### `parse(T, allocator)`
-Parse command-line arguments into struct of type `T`.
-
-```zig
-var result = try zync_cli.parse(Args, allocator);
-defer result.deinit();
-```
-
-#### `parseFrom(T, allocator, args)`
+#### `parse(T, allocator, args)`
 Parse from custom argument array.
 
 ```zig
-const args = &.{"myapp", "--verbose", "--name", "Alice"};
-var result = try zync_cli.parseFrom(Args, allocator, args);
-defer result.deinit();
+const args = &.{"--verbose", "--name", "Alice"};
+const result = try zync_cli.parse(Args, arena.allocator(), args);
+```
+
+#### `parseProcess(T, allocator)`
+Parse command-line arguments from process (automatically skips program name).
+
+```zig
+const result = try zync_cli.parseProcess(Args, arena.allocator());
+```
+
+#### `Parser(T)`
+Type-specific parser with compile-time optimization.
+
+```zig
+const result = try zync_cli.Parser(Args).parse(allocator, args);
+const help_text = zync_cli.Parser(Args).help();
 ```
 
 #### `help(T)`
@@ -184,34 +189,26 @@ Compile-time validation of struct definition.
 comptime zync_cli.validate(Args); // Validates at compile time
 ```
 
-#### Legacy API (Backward Compatible)
-The old verbose API is still available for backward compatibility:
+### Simple Return Values
+
+Parsing functions now return the parsed arguments directly:
 
 ```zig
-var result = try zync_cli.cli.parse(Args, allocator);  // Still works
-const help_text = zync_cli.cli.help(Args);            // Still works
-```
-
-### ParseResult
-
-The `ParseResult(T)` type contains the parsed arguments and metadata:
-
-```zig
-const ParseResult = struct {
-    args: T,                              // Parsed arguments
-    diagnostics: []const Diagnostic,     // Warnings and info messages  
-    allocator: std.mem.Allocator,       // Memory allocator used
-    
-    pub fn deinit(self: *Self) void;    // Clean up memory
-};
+// Simple and clean
+const args = try zync_cli.parseProcess(Args, arena.allocator());
+// No manual cleanup needed - arena handles memory
 ```
 
 ### Error Handling
 
 ```zig
-var result = zync_cli.parse(Args, allocator) catch |err| switch (err) {
+const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
     error.UnknownFlag => {
         std.debug.print("Unknown flag provided. Use --help for usage.\n", .{});
+        return;
+    },
+    error.MissingRequiredArgument => {
+        std.debug.print("Missing required argument. Use --help for usage.\n", .{});
         return;
     },
     error.MissingValue => {
@@ -252,29 +249,34 @@ const zync_cli = @import("zync-cli");
 
 test "my CLI parsing" {
     const Args = struct {
-        verbose: bool = false,
-        name: []const u8 = "test",
+        @"verbose|v": bool = false,
+        @"name|n=test": []const u8 = "",
     };
     
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
     // Test successful parsing
-    try zync_cli.testing.expectParse(Args, &.{"--verbose", "--name", "Alice"}, 
-        Args{ .verbose = true, .name = "Alice" });
+    const result = try zync_cli.parse(Args, arena.allocator(), &.{"--verbose", "--name", "Alice"});
+    try std.testing.expect(result.@"verbose|v" == true);
+    try std.testing.expectEqualStrings(result.@"name|n=test", "Alice");
     
     // Test error conditions
-    try zync_cli.testing.expectParseError(error.UnknownFlag, Args, &.{"--invalid"});
-    
-    // Test diagnostics
-    try zync_cli.testing.expectDiagnostics(Args, &.{"--unknown"}, 1);
+    try std.testing.expectError(error.UnknownFlag, 
+        zync_cli.parse(Args, arena.allocator(), &.{"--invalid"}));
 }
 ```
 
 ### Current Test Coverage
 
-- **86 total tests** across all modules
-- **Field encoding DSL** parsing and validation
+- **89 total tests** across all modules
+- **Field encoding DSL** parsing and validation  
 - **Argument parsing** for all supported types
-- **Error handling** and diagnostic generation
-- **Memory management** and leak detection
+- **Required field validation** with `!` syntax
+- **Default value handling** with `=value` syntax
+- **Positional arguments** with `#` syntax
+- **Error handling** for all error conditions
+- **Memory management** with arena allocation
 - **Help generation** and formatting
 - **Integration testing** with real CLI scenarios
 
@@ -282,19 +284,22 @@ test "my CLI parsing" {
 
 Zync-CLI provides automatic, leak-free memory management:
 
-### Automatic Cleanup
+### Arena-Based Memory Management
 
 ```zig
-var result = try zync_cli.parse(Args, allocator);
-defer result.deinit(); // Automatically frees all allocated memory
+var arena = std.heap.ArenaAllocator.init(allocator);
+defer arena.deinit(); // Automatically frees all allocated memory
+
+const args = try zync_cli.parseProcess(Args, arena.allocator());
 // No manual string cleanup required!
 ```
 
 ### Memory Safety Features
 
-- **Zero Leaks**: Automatic tracking and cleanup of all allocated strings
+- **Zero Leaks**: Arena-based allocation ensures no memory leaks
 - **Safe Defaults**: No dangling pointers or invalid memory access
 - **Allocator Flexibility**: Works with any Zig allocator
+- **Simple Cleanup**: Single `arena.deinit()` call cleans everything
 - **Testing Integration**: Memory leak detection in test suite
 
 ### Performance Characteristics
@@ -309,15 +314,16 @@ defer result.deinit(); // Automatically frees all allocated memory
 ```
 zync-cli/
 ├── src/
-│   ├── root.zig        # Main library API
-│   ├── types.zig       # Core type definitions  
-│   ├── parser.zig      # Argument parsing engine
+│   ├── root.zig        # Main library API (simplified, idiomatic)
+│   ├── types.zig       # Core type definitions
+│   ├── parser.zig      # Argument parsing engine (89 tests)
 │   ├── meta.zig        # Compile-time metadata extraction
 │   ├── help.zig        # Help text generation
 │   ├── testing.zig     # Testing utilities
 │   └── main.zig        # Demo application
 ├── build.zig           # Build configuration
 ├── README.md           # This file
+├── CLAUDE.md           # Project documentation
 └── spec.md             # Library specification
 ```
 
@@ -367,15 +373,19 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 - [x] Error handling with diagnostics
 
 ### Completed (v0.2.0)
-- [x] Required field validation
-- [x] Default value handling with DSL syntax
-- [x] Comprehensive diagnostics and error reporting
+- [x] Required field validation with `!` syntax
+- [x] Default value handling with `=value` syntax
+- [x] Positional argument support with `#` syntax
+- [x] Idiomatic Zig architecture with arena allocation
+- [x] Type-specific parsers with compile-time optimization
+- [x] Comprehensive error handling
+- [x] 89 comprehensive tests
 
 ### In Progress
+- [ ] Dynamic help generation from field metadata
 - [ ] Advanced field encodings (`*`, `+`, `$`)
 
-### Planned (v0.2.0)
-- [ ] Positional argument support
+### Planned (v0.3.0)
 - [ ] Environment variable integration
 - [ ] Configuration file parsing
 - [ ] Subcommand system with tagged unions

@@ -5,33 +5,8 @@
 
 const std = @import("std");
 
-/// Errors that can occur during argument parsing
-pub const ParseError = error{
-    /// Unknown command-line flag was encountered
-    UnknownFlag,
-    /// A required argument was not provided
-    MissingRequiredArgument,
-    /// A flag that requires a value was not given one
-    MissingValue,
-    /// An invalid value was provided for a flag
-    InvalidValue,
-    /// Mutually exclusive flags were both provided
-    MutuallyExclusive,
-    /// Arguments that must be provided together are missing
-    RequiredTogether,
-    /// Too many positional arguments were provided
-    TooManyPositionalArgs,
-    /// Not enough positional arguments were provided
-    NotEnoughPositionalArgs,
-    /// A validation constraint failed
-    ValidationFailed,
-    /// Memory allocation failed
-    OutOfMemory,
-    /// Environment variable parsing failed
-    InvalidEnvironmentVariable,
-    /// Configuration file parsing failed
-    InvalidConfigurationFile,
-};
+/// Errors that can occur during argument parsing (moved to parser.zig)
+pub const ParseError = @import("parser.zig").ParseError;
 
 /// Diagnostic information about parsing issues
 pub const Diagnostic = struct {
@@ -65,48 +40,13 @@ pub const Diagnostic = struct {
     };
 };
 
-/// Result of parsing command-line arguments
+/// Simple result type - no longer needed with arena allocation
+/// Kept for backward compatibility but not used in new API
 pub fn ParseResult(comptime T: type) type {
     return struct {
-        /// The parsed arguments structure
         args: T,
-        /// Any diagnostics generated during parsing
-        diagnostics: []const Diagnostic,
-        /// Allocator used for memory management
-        allocator: std.mem.Allocator,
-        /// List of allocated strings that need to be freed
-        allocated_strings: std.ArrayList([]u8),
-        
-        const Self = @This();
-        
-        /// Clean up allocated memory
-        pub fn deinit(self: *Self) void {
-            // Clean up allocated strings
-            for (self.allocated_strings.items) |string| {
-                self.allocator.free(string);
-            }
-            self.allocated_strings.deinit();
-            
-            // Clean up diagnostics
-            for (self.diagnostics) |diagnostic| {
-                self.allocator.free(diagnostic.message);
-                if (diagnostic.suggestion) |suggestion| {
-                    self.allocator.free(suggestion);
-                }
-            }
-            if (self.diagnostics.len > 0) {
-                self.allocator.free(self.diagnostics);
-            }
-            
-            // Clean up the parsed arguments if they contain allocated memory
-            if (comptime hasCleanup(T)) {
-                self.args.deinit(self.allocator);
-            }
-        }
-        
-        /// Check if the type has a cleanup method
-        fn hasCleanup(comptime Type: type) bool {
-            return @hasDecl(Type, "deinit");
+        pub fn deinit(self: *@This()) void {
+            _ = self;
         }
     };
 }
@@ -162,19 +102,15 @@ test "ParseResult basic functionality" {
         verbose: bool = false,
     };
     
-    const allocator = std.testing.allocator;
-    
     // Test creating a parse result
-    const allocated_strings = std.ArrayList([]u8).init(allocator);
     var result = ParseResult(TestArgs){
         .args = TestArgs{ .verbose = true },
-        .diagnostics = &.{},
-        .allocator = allocator,
-        .allocated_strings = allocated_strings,
     };
     
     // Test that it doesn't crash on deinit
     result.deinit();
+    
+    try std.testing.expect(result.args.verbose == true);
 }
 
 test "Diagnostic creation" {

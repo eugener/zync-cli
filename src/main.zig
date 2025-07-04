@@ -26,37 +26,23 @@ const Args = struct {
 };
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
     
     // Parse command line arguments
-    var result = zync_cli.parse(Args, allocator) catch |err| switch (err) {
+    const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
         error.UnknownFlag, error.MissingValue, error.InvalidValue => {
             std.debug.print("Error parsing arguments. Use --help for usage information.\n", .{});
             return;
         },
         else => return err,
     };
-    defer result.deinit();
-    
-    const args = result.args;
     
     // Handle help flag
     if (args.@"help|h") {
         const help_text = zync_cli.help(Args);
         std.debug.print("{s}\n", .{help_text});
         return;
-    }
-    
-    // Print any diagnostics (warnings, etc.)
-    for (result.diagnostics) |diagnostic| {
-        switch (diagnostic.level) {
-            .warning => std.debug.print("Warning: {s}\n", .{diagnostic.message}),
-            .info => std.debug.print("Info: {s}\n", .{diagnostic.message}),
-            .hint => std.debug.print("Hint: {s}\n", .{diagnostic.message}),
-            .err => std.debug.print("Error: {s}\n", .{diagnostic.message}),
-        }
     }
     
     // Use the parsed arguments
@@ -78,21 +64,20 @@ pub fn main() !void {
 
 test "basic library usage" {
     // Test that we can import and use the library
-    _ = zync_cli.cli;
-    _ = zync_cli.types;
-    _ = zync_cli.parser;
-    _ = zync_cli.meta;
+    _ = zync_cli.Parser;
+    _ = zync_cli.parse;
+    _ = zync_cli.help;
 }
 
 test "demo CLI parsing" {
-    const allocator = std.testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
     
     // Test basic parsing with required config field
-    var result = try zync_cli.parseFrom(Args, allocator, &.{"demo", "--name", "Test", "-v", "--config", "test.conf"});
-    defer result.deinit();
+    const result = try zync_cli.parse(Args, arena.allocator(), &.{"--name", "Test", "-v", "--config", "test.conf"});
     
-    try std.testing.expectEqualStrings(result.args.@"name|n=World", "Test");
-    try std.testing.expect(result.args.@"verbose|v" == true);
-    try std.testing.expect(result.args.@"count|c=1" == 1); // default value applied
-    try std.testing.expect(result.args.@"port|p=8080" == 8080); // default value applied
+    try std.testing.expectEqualStrings(result.@"name|n=World", "Test");
+    try std.testing.expect(result.@"verbose|v" == true);
+    try std.testing.expect(result.@"count|c=1" == 1); // default value applied
+    try std.testing.expect(result.@"port|p=8080" == 8080); // default value applied
 }

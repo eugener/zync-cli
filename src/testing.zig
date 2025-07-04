@@ -11,15 +11,15 @@ const ParseResult = types.ParseResult;
 const ParseError = types.ParseError;
 
 /// Parse arguments for testing purposes
-pub fn parse(comptime T: type, args: []const []const u8) !ParseResult(T) {
-    return parser.parseFrom(T, std.testing.allocator, args);
+pub fn parse(comptime T: type, args: []const []const u8) !T {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    return parser.parseFrom(T, arena.allocator(), args);
 }
 
-/// Parse arguments and automatically clean up memory
+/// Parse arguments and automatically clean up memory (same as parse now)
 pub fn parseAndCleanup(comptime T: type, args: []const []const u8) !T {
-    var result = try parse(T, args);
-    defer result.deinit();
-    return result.args;
+    return parse(T, args);
 }
 
 /// Expect that parsing succeeds and returns the expected result
@@ -102,11 +102,10 @@ test "parse basic arguments" {
         count: u32 = 0,
     };
     
-    var result = try parse(TestArgs, &.{"test"});
-    defer result.deinit();
+    const result = try parse(TestArgs, &.{});
     
-    try expect(result.args.verbose == false);
-    try expect(result.args.count == 0);
+    try expect(result.verbose == false);
+    try expect(result.count == 0);
 }
 
 test "parseAndCleanup" {
@@ -114,7 +113,7 @@ test "parseAndCleanup" {
         verbose: bool = false,
     };
     
-    const args = try parseAndCleanup(TestArgs, &.{"test"});
+    const args = try parseAndCleanup(TestArgs, &.{});
     try expect(args.verbose == false);
 }
 
