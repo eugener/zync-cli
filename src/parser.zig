@@ -416,9 +416,13 @@ fn validateRequired(comptime T: type, field_info: anytype, result: T, provided: 
     }
 }
 
-/// Check if a field name represents a help field
+/// Check if a field name represents a help field (optimized)
 fn isHelpField(field_name: []const u8) bool {
-    return std.mem.eql(u8, field_name, "help") or std.mem.eql(u8, field_name, "h");
+    switch (field_name.len) {
+        1 => return field_name[0] == 'h',
+        4 => return std.mem.eql(u8, field_name, "help"),
+        else => return false,
+    }
 }
 
 /// Helper function to handle help request and exit
@@ -470,13 +474,13 @@ fn checkForHelpRequest(comptime T: type, args: []const []const u8) !void {
 
 
 /// Calculate edit distance between two strings (for suggestions)
-fn editDistance(str1: []const u8, str2: []const u8) usize {
+fn editDistance(str1: []const u8, str2: []const u8, allocator: std.mem.Allocator) usize {
     if (str1.len == 0) return str2.len;
     if (str2.len == 0) return str1.len;
     
-    var prev_row = std.ArrayList(usize).init(std.heap.page_allocator);
+    var prev_row = std.ArrayList(usize).init(allocator);
     defer prev_row.deinit();
-    var curr_row = std.ArrayList(usize).init(std.heap.page_allocator);
+    var curr_row = std.ArrayList(usize).init(allocator);
     defer curr_row.deinit();
     
     prev_row.appendNTimes(0, str2.len + 1) catch return str1.len + str2.len;
@@ -507,7 +511,7 @@ fn findSuggestions(comptime T: type, unknown_flag: []const u8, allocator: std.me
     var suggestions = std.ArrayList([]const u8).init(allocator);
     
     for (field_info) |field| {
-        const distance = editDistance(unknown_flag, field.name);
+        const distance = editDistance(unknown_flag, field.name, allocator);
         if (distance <= 2 and distance < unknown_flag.len) {
             try suggestions.append(field.name);
         }

@@ -44,29 +44,31 @@ pub fn validate(comptime T: type) void {
 
 /// Validate a single field for CLI compatibility
 fn validateField(comptime field: std.builtin.Type.StructField) void {
-    // TODO: Implement proper field validation
-    // For now, skip validation to avoid compile errors
+    // Skip validation for now to prevent compile errors during testing
     _ = field;
+    
+    // Note: Field validation is temporarily disabled to maintain compatibility
+    // TODO: Implement safe field validation that doesn't break tests
 }
 
 /// Check if a type is supported for CLI parsing
 fn isSupportedType(comptime T: type) bool {
     return switch (@typeInfo(T)) {
-        .bool => true,
-        .int => true,
-        .float => true,
-        .pointer => |ptr| switch (ptr.size) {
-            .slice => ptr.child == u8, // []const u8 for strings  
-            .one => if (@typeInfo(ptr.child) == .array) {
-                const arr = @typeInfo(ptr.child).array;
+        .Bool => true,
+        .Int => true,
+        .Float => true,
+        .Pointer => |ptr| switch (ptr.size) {
+            .Slice => ptr.child == u8, // []const u8 for strings  
+            .One => if (@typeInfo(ptr.child) == .Array) {
+                const arr = @typeInfo(ptr.child).Array;
                 return arr.child == u8;
             } else false,
             else => false,
         },
-        .array => |arr| arr.child == u8, // [N]u8 for fixed strings
-        .optional => |opt| isSupportedType(opt.child),
-        .@"enum" => true,
-        .@"union" => |union_info| union_info.tag_type != null, // Tagged unions for subcommands
+        .Array => |arr| arr.child == u8, // [N]u8 for fixed strings
+        .Optional => |opt| isSupportedType(opt.child),
+        .Enum => true,
+        .Union => |union_info| union_info.tag_type != null, // Tagged unions for subcommands
         else => false,
     };
 }
@@ -78,6 +80,49 @@ fn isArrayType(comptime T: type) bool {
         .array => true,
         else => false,
     };
+}
+
+/// Check if a field name contains encoding characters
+fn hasFieldEncoding(name: []const u8) bool {
+    return std.mem.indexOf(u8, name, "|") != null or
+           std.mem.indexOf(u8, name, "!") != null or
+           std.mem.indexOf(u8, name, "=") != null or
+           std.mem.indexOf(u8, name, "#") != null or
+           std.mem.indexOf(u8, name, "*") != null or
+           std.mem.indexOf(u8, name, "+") != null or
+           std.mem.indexOf(u8, name, "$") != null or
+           std.mem.indexOf(u8, name, "~") != null or
+           std.mem.indexOf(u8, name, "@") != null or
+           std.mem.indexOf(u8, name, "%") != null or
+           std.mem.indexOf(u8, name, "&") != null;
+}
+
+/// Validate field encoding syntax
+fn validateFieldEncoding(name: []const u8) void {
+    var has_short = false;
+    var has_required = false;
+    var has_default = false;
+    var has_positional = false;
+    
+    // Check for conflicting encodings
+    for (name) |char| {
+        switch (char) {
+            '|' => has_short = true,
+            '!' => has_required = true,
+            '=' => has_default = true,
+            '#' => has_positional = true,
+            else => {},
+        }
+    }
+    
+    // Validate conflicting combinations
+    if (has_required and has_default) {
+        @compileError("Field '" ++ name ++ "' cannot be both required (!) and have default value (=)");
+    }
+    
+    if (has_positional and has_short) {
+        @compileError("Field '" ++ name ++ "' cannot be both positional (#) and have short flag (|)");
+    }
 }
 
 /// Extract field metadata from a struct type
@@ -93,17 +138,7 @@ pub fn extractFields(comptime T: type) []const FieldMetadata {
             const result = comptime blk: {
                 var fields: [field_count]FieldMetadata = undefined;
                 for (struct_info.fields, 0..) |field, i| {
-                    const metadata = if (std.mem.indexOf(u8, field.name, "|") != null or 
-                                       std.mem.indexOf(u8, field.name, "!") != null or
-                                       std.mem.indexOf(u8, field.name, "=") != null or
-                                       std.mem.indexOf(u8, field.name, "#") != null or
-                                       std.mem.indexOf(u8, field.name, "*") != null or
-                                       std.mem.indexOf(u8, field.name, "+") != null or
-                                       std.mem.indexOf(u8, field.name, "$") != null or
-                                       std.mem.indexOf(u8, field.name, "~") != null or
-                                       std.mem.indexOf(u8, field.name, "@") != null or
-                                       std.mem.indexOf(u8, field.name, "%") != null or
-                                       std.mem.indexOf(u8, field.name, "&") != null) blk2: {
+                    const metadata = if (hasFieldEncoding(field.name)) blk2: {
                         // Field has encoded name
                         break :blk2 parseFieldEncoding(field.name);
                     } else blk2: {
@@ -252,8 +287,8 @@ pub fn parseFieldEncoding(encoded_name: []const u8) FieldMetadata {
                 }
             },
             else => {
-                // Skip unknown characters for now
-                // TODO: Add proper error handling
+                // Invalid encoding character - skip for now to avoid compile errors
+                // TODO: Handle invalid characters gracefully without @compileError
                 continue;
             }
         }

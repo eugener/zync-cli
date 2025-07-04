@@ -6,6 +6,9 @@
 const std = @import("std");
 const tty = std.io.tty;
 
+/// Cached color support result
+var color_support_cache: ?bool = null;
+
 /// Check if colors are supported (simplified approach)
 fn isColorSupported() bool {
     // Check common environment variables
@@ -16,9 +19,15 @@ fn isColorSupported() bool {
     return std.posix.isatty(std.io.getStdOut().handle);
 }
 
-/// Check if stdout supports colors
+/// Check if stdout supports colors (cached)
 pub fn supportsColor() bool {
-    return isColorSupported();
+    if (color_support_cache) |cached| {
+        return cached;
+    }
+    
+    const result = isColorSupported();
+    color_support_cache = result;
+    return result;
 }
 
 /// Simple ANSI color codes for cross-platform compatibility

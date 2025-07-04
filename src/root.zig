@@ -48,8 +48,13 @@ pub fn parseProcess(comptime T: type, allocator: std.mem.Allocator) !T {
     return parse(T, allocator, cli_args);
 }
 
-/// Generate help text for the specified type
-pub fn help(comptime T: type) []const u8 {
+/// Generate formatted help text for the specified type
+pub fn help(comptime T: type, allocator: std.mem.Allocator) ![]const u8 {
+    return help_gen.formatHelp(T, allocator, false); // Plain text version
+}
+
+/// Generate help text for the specified type (backwards compatibility)
+pub fn helpBasic(comptime T: type) []const u8 {
     return help_gen.generate(T);
 }
 
@@ -69,8 +74,13 @@ pub fn Parser(comptime T: type) type {
             return parser.parseFrom(T, allocator, args);
         }
         
-        /// Generate help text for this type
-        pub fn help() []const u8 {
+        /// Generate formatted help text for this type
+        pub fn help(allocator: std.mem.Allocator) ![]const u8 {
+            return help_gen.formatHelp(T, allocator, false);
+        }
+        
+        /// Generate basic help text for this type (backwards compatibility)
+        pub fn helpBasic() []const u8 {
             return help_gen.generate(T);
         }
         
@@ -122,7 +132,7 @@ test "Parser type works" {
     try testing.expect(result.@"verbose|v" == true);
     try testing.expect(result.@"count|c=5" == 10);
     
-    // Test help generation
-    const help_text = Parser(TestArgs).help();
+    // Test help generation (backwards compatibility)
+    const help_text = Parser(TestArgs).helpBasic();
     try testing.expect(help_text.len > 0);
 }

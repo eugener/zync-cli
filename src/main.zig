@@ -7,12 +7,12 @@ const zync_cli = @import("zync_cli_lib");
 
 // Define our CLI arguments structure
 const Args = struct {
-    @"verbose|v": bool = false,
-    @"name|n=World": []const u8 = "",
-    @"count|c=1": u32 = 0,
-    @"port|p=8080": u16 = 0,
-    @"help|h": bool = false,
-    @"config|f!": []const u8 = "", // Required config file
+    @"verbose|v\"Enable verbose output\"": bool = false,
+    @"name|n=World\"Name to greet\"": []const u8 = "",
+    @"count|c=1\"Number of times to greet\"": u32 = 0,
+    @"port|p=8080\"Port number to listen on\"": u16 = 0,
+    @"config|f!\"Configuration file path\"": []const u8 = "", // Required config file
+    // Note: Help (-h, --help) is now automatically provided by the library!
     
     pub const cli = .{
         .name = "zync-cli-demo",
@@ -44,19 +44,19 @@ pub fn main() !void {
     };
     
     // Use the parsed arguments
-    if (args.@"verbose|v") {
+    if (args.@"verbose|v\"Enable verbose output\"") {
         std.debug.print("Verbose mode enabled\n", .{});
         std.debug.print("Arguments parsed successfully:\n", .{});
-        std.debug.print("  name: {s}\n", .{args.@"name|n=World"});
-        std.debug.print("  count: {d}\n", .{args.@"count|c=1"});
-        std.debug.print("  port: {d}\n", .{args.@"port|p=8080"});
-        std.debug.print("  config: {s}\n", .{args.@"config|f!"});
+        std.debug.print("  name: {s}\n", .{args.@"name|n=World\"Name to greet\""});
+        std.debug.print("  count: {d}\n", .{args.@"count|c=1\"Number of times to greet\""});
+        std.debug.print("  port: {d}\n", .{args.@"port|p=8080\"Port number to listen on\""});
+        std.debug.print("  config: {s}\n", .{args.@"config|f!\"Configuration file path\""});
     }
     
     // Demonstrate the functionality
     var i: u32 = 0;
-    while (i < args.@"count|c=1") : (i += 1) {
-        std.debug.print("Hello, {s}!\n", .{args.@"name|n=World"});
+    while (i < args.@"count|c=1\"Number of times to greet\"") : (i += 1) {
+        std.debug.print("Hello, {s}!\n", .{args.@"name|n=World\"Name to greet\""});
     }
 }
 
@@ -74,8 +74,8 @@ test "demo CLI parsing" {
     // Test basic parsing with required config field
     const result = try zync_cli.parse(Args, arena.allocator(), &.{"--name", "Test", "-v", "--config", "test.conf"});
     
-    try std.testing.expectEqualStrings(result.@"name|n=World", "Test");
-    try std.testing.expect(result.@"verbose|v" == true);
-    try std.testing.expect(result.@"count|c=1" == 1); // default value applied
-    try std.testing.expect(result.@"port|p=8080" == 8080); // default value applied
+    try std.testing.expectEqualStrings(result.@"name|n=World\"Name to greet\"", "Test");
+    try std.testing.expect(result.@"verbose|v\"Enable verbose output\"" == true);
+    try std.testing.expect(result.@"count|c=1\"Number of times to greet\"" == 1); // default value applied
+    try std.testing.expect(result.@"port|p=8080\"Port number to listen on\"" == 8080); // default value applied
 }
