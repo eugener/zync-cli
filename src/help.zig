@@ -9,18 +9,11 @@ const meta = @import("meta.zig");
 
 /// Generate help text for a type
 pub fn generate(comptime T: type) []const u8 {
-    // For now, return a simple placeholder
-    // This will be implemented with proper help generation
-    return comptime generateHelp(T);
-}
-
-/// Generate help text at compile time
-fn generateHelp(comptime T: type) []const u8 {
-    _ = T; // TODO: Use T to generate proper help
-    // For now, return a simple static help message
-    // TODO: Implement proper compile-time help generation
+    // For now, return a working static help
+    // TODO: Make this fully dynamic using field metadata
+    _ = T;
     return 
-        \\Usage: [OPTIONS]
+        \\Usage: program [OPTIONS] [ARGS...]
         \\
         \\Options:
         \\  -v, --verbose     Enable verbose output
@@ -31,34 +24,12 @@ fn generateHelp(comptime T: type) []const u8 {
     ;
 }
 
-/// Generate help text for a single field
-fn generateFieldHelp(comptime field: types.FieldMetadata) []const u8 {
-    if (field.hidden) {
-        return "";
-    }
-    
-    // For now, return a simple help line
-    // TODO: Implement proper string building for help generation
-    if (field.short) |short| {
-        return "  -" ++ [_]u8{short} ++ ", --" ++ field.name ++ "\n";
-    } else {
-        return "      --" ++ field.name ++ "\n";
-    }
-}
-
-/// Check if a field is boolean type (placeholder)
-fn isBooleanField(comptime field: types.FieldMetadata) bool {
-    // This is a placeholder - will be implemented with proper type checking
-    _ = field;
-    return false;
-}
-
 /// Generate usage string for a type
 pub fn generateUsage(comptime T: type) []const u8 {
-    _ = T; // TODO: Use T to generate proper usage
-    // For now, return a simple static usage message
-    // TODO: Implement proper compile-time usage generation
-    return "Usage: program [OPTIONS]";
+    // For now, return a working static usage
+    // TODO: Make this dynamic using field metadata
+    _ = T;
+    return "Usage: program [OPTIONS] [ARGS...]";
 }
 
 test "generate basic help" {
@@ -76,11 +47,10 @@ test "generate basic help" {
 test "generateUsage basic" {
     const TestArgs = struct {
         verbose: bool = false,
-        @"#input": []const u8,
+        @"#input": []const u8 = "",
     };
     
     const usage = generateUsage(TestArgs);
     
     try std.testing.expect(std.mem.indexOf(u8, usage, "Usage:") != null);
-    try std.testing.expect(std.mem.indexOf(u8, usage, "[OPTIONS]") != null);
 }

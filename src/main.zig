@@ -31,19 +31,16 @@ pub fn main() !void {
     
     // Parse command line arguments
     const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
-        error.UnknownFlag, error.MissingValue, error.InvalidValue => {
+        error.HelpRequested => {
+            // Help was already displayed by the parser
+            return;
+        },
+        error.UnknownFlag, error.MissingValue, error.InvalidValue, error.MissingRequiredArgument => {
             std.debug.print("Error parsing arguments. Use --help for usage information.\n", .{});
             return;
         },
         else => return err,
     };
-    
-    // Handle help flag
-    if (args.@"help|h") {
-        const help_text = zync_cli.help(Args);
-        std.debug.print("{s}\n", .{help_text});
-        return;
-    }
     
     // Use the parsed arguments
     if (args.@"verbose|v") {

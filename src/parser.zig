@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const meta = @import("meta.zig");
+const help = @import("help.zig");
 
 /// Errors that can occur during argument parsing
 pub const ParseError = error{
@@ -21,12 +22,17 @@ pub const ParseError = error{
     NotEnoughPositionalArgs,
     /// Memory allocation failed
     OutOfMemory,
+    /// Help was requested and displayed
+    HelpRequested,
 };
 
 /// Parse arguments from a string array into the specified type
 pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !T {
     // Validate the structure at compile time
     comptime meta.validate(T);
+    
+    // Check for help flags FIRST, before any validation
+    try checkForHelpRequest(T, args);
     
     // Initialize the result structure with defaults
     var result = T{};
@@ -361,6 +367,58 @@ fn validateRequired(comptime T: type, field_info: anytype, result: T, provided: 
     }
 }
 
+/// Check if help was requested and handle it automatically
+fn checkForHelpRequest(comptime T: type, args: []const []const u8) !void {
+    // Extract field metadata to find help flags
+    const field_info = comptime meta.extractFields(T);
+    
+    // Scan arguments for help requests
+    for (args) |arg| {
+        if (std.mem.startsWith(u8, arg, "--")) {
+            const flag_name = arg[2..];
+            // Check for common help flags
+            if (std.mem.eql(u8, flag_name, "help") or std.mem.eql(u8, flag_name, "h")) {
+                printHelpAndExit(T);
+                return ParseError.HelpRequested;
+            }
+            
+            // Check against struct-defined help flags
+            inline for (field_info) |field| {
+                if (std.mem.eql(u8, field.name, "help") or std.mem.eql(u8, field.name, "h")) {
+                    if (std.mem.eql(u8, flag_name, field.name)) {
+                        printHelpAndExit(T);
+                        return ParseError.HelpRequested;
+                    }
+                }
+            }
+        } else if (std.mem.startsWith(u8, arg, "-") and arg.len == 2) {
+            const flag_char = arg[1];
+            // Check for common short help flag
+            if (flag_char == 'h') {
+                printHelpAndExit(T);
+                return ParseError.HelpRequested;
+            }
+            
+            // Check against struct-defined short help flags
+            inline for (field_info) |field| {
+                if (field.short) |short| {
+                    if ((std.mem.eql(u8, field.name, "help") or std.mem.eql(u8, field.name, "h")) and
+                        flag_char == short) {
+                        printHelpAndExit(T);
+                        return ParseError.HelpRequested;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Print help text and indicate program should exit
+fn printHelpAndExit(comptime T: type) void {
+    const help_text = help.generate(T);
+    std.debug.print("{s}\n", .{help_text});
+}
+
 test "parse simple arguments" {
     const TestArgs = struct {
         @"verbose|v": bool = false,
@@ -546,4 +604,49 @@ test "missing value for flag" {
     const result = parseFrom(TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.MissingValue, result);
+}
+
+test "automatic help handling - long flag" {
+    const TestArgs = struct {
+        @"verbose|v": bool = false,
+        @"name|n": []const u8 = "",
+    };
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = &.{"--help"};
+    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectError(ParseError.HelpRequested, result);
+}
+
+test "automatic help handling - short flag" {
+    const TestArgs = struct {
+        @"verbose|v": bool = false,
+        @"config|c!": []const u8 = "",
+    };
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = &.{"-h"};
+    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectError(ParseError.HelpRequested, result);
+}
+
+test "automatic help handling - custom help field" {
+    const TestArgs = struct {
+        @"verbose|v": bool = false,
+        @"help|h": bool = false,
+    };
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = &.{"--help"};
+    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectError(ParseError.HelpRequested, result);
 }

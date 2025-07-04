@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-89%2F89%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-102%2F102%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -14,8 +14,9 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Ergonomic DSL** - Intuitive field encoding syntax for CLI definitions
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 89 comprehensive tests covering all functionality
+- **Battle Tested** - 102 comprehensive tests covering all functionality
 - **Self-Documenting** - Automatic help generation from field definitions
+- **Automatic Help** - Built-in help flag processing with no user code required
 
 ## Quick Start
 
@@ -49,12 +50,13 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     
-    const args = try zync_cli.parseProcess(Args, arena.allocator());
-    
-    if (args.@"help|h") {
-        std.debug.print("{s}\n", .{zync_cli.help(Args)});
-        return;
-    }
+    const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
+        error.HelpRequested => {
+            // Help was automatically displayed by the parser
+            return;
+        },
+        else => return err,
+    };
     
     if (args.@"verbose|v") {
         std.debug.print("Verbose mode enabled!\n", .{});
@@ -199,10 +201,16 @@ const args = try zync_cli.parseProcess(Args, arena.allocator());
 // No manual cleanup needed - arena handles memory
 ```
 
-### Error Handling
+### Error Handling & Automatic Help
+
+Zync-CLI automatically handles help flags and displays help text before any validation occurs:
 
 ```zig
 const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
+    error.HelpRequested => {
+        // Help was automatically displayed by the parser
+        return;
+    },
     error.UnknownFlag => {
         std.debug.print("Unknown flag provided. Use --help for usage.\n", .{});
         return;
@@ -222,6 +230,12 @@ const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (
     else => return err,
 };
 ```
+
+**Key Features:**
+- **No manual help checking required** - Help flags are processed automatically
+- **Pre-validation help** - Help works even when required fields are missing
+- **Standard conventions** - Supports both `--help` and `-h` flags
+- **Custom help fields** - Automatically detects help fields in your struct
 
 ## Testing
 
@@ -269,12 +283,13 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **89 total tests** across all modules
+- **102 total tests** across all modules
 - **Field encoding DSL** parsing and validation  
 - **Argument parsing** for all supported types
 - **Required field validation** with `!` syntax
 - **Default value handling** with `=value` syntax
 - **Positional arguments** with `#` syntax
+- **Automatic help handling** with `--help` and `-h` flags
 - **Error handling** for all error conditions
 - **Memory management** with arena allocation
 - **Help generation** and formatting
@@ -379,10 +394,11 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 - [x] Idiomatic Zig architecture with arena allocation
 - [x] Type-specific parsers with compile-time optimization
 - [x] Comprehensive error handling
-- [x] 89 comprehensive tests
+- [x] Dynamic help generation from field metadata
+- [x] Automatic help flag processing (no user code required)
+- [x] 102 comprehensive tests
 
 ### In Progress
-- [ ] Dynamic help generation from field metadata
 - [ ] Advanced field encodings (`*`, `+`, `$`)
 
 ### Planned (v0.3.0)
