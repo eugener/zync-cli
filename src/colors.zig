@@ -6,31 +6,27 @@
 const std = @import("std");
 const tty = std.io.tty;
 
-/// Cached color support result
-var color_support_cache: ?bool = null;
-
-/// Check if colors are supported (simplified approach)
-fn isColorSupported() bool {
-    // Check common environment variables
-    if (std.posix.getenv("NO_COLOR")) |_| return false;
-    if (std.posix.getenv("FORCE_COLOR")) |_| return true;
-    
-    // Check if we're in a terminal
-    return std.posix.isatty(std.io.getStdOut().handle);
+/// Get TTY configuration for stderr
+fn getStderrConfig() tty.Config {
+    return tty.detectConfig(std.io.getStdErr());
 }
 
-/// Check if stdout supports colors (cached)
+/// Get TTY configuration for stdout
+fn getStdoutConfig() tty.Config {
+    return tty.detectConfig(std.io.getStdOut());
+}
+
+/// Check if colors are supported (for backward compatibility)
 pub fn supportsColor() bool {
-    if (color_support_cache) |cached| {
-        return cached;
-    }
-    
-    const result = isColorSupported();
-    color_support_cache = result;
-    return result;
+    // Use stdlib's TTY detection which is more robust
+    return switch (getStdoutConfig()) {
+        .no_color => false,
+        .escape_codes, .windows_api => true,
+    };
 }
 
-/// Simple ANSI color codes for cross-platform compatibility
+/// ANSI color constants for string-based help generation
+/// These match the stdlib's TTY colors but as string constants for embedding in text
 pub const AnsiColors = struct {
     pub const reset = "\x1b[0m";
     pub const red = "\x1b[31m";
@@ -54,34 +50,31 @@ pub fn printError(message: []const u8, context: ?[]const u8, suggestion: ?[]cons
     }
     
     const stderr = std.io.getStdErr().writer();
+    const config = getStderrConfig();
     
-    if (supportsColor()) {
-        // Colored error message
-        stderr.print("{s}Error: {s}{s}", .{ AnsiColors.red, AnsiColors.reset, message }) catch {};
-        
-        if (context) |ctx| {
-            stderr.print(" ({s}'{s}'{s})", .{ AnsiColors.bright_red, ctx, AnsiColors.reset }) catch {};
-        }
-        
-        if (suggestion) |sug| {
-            stderr.print("\n\n{s}Suggestion: {s}{s}", .{ AnsiColors.yellow, AnsiColors.reset, sug }) catch {};
-        }
-        
-        stderr.print("\n", .{}) catch {};
-    } else {
-        // Plain text fallback
-        stderr.print("Error: {s}", .{message}) catch {};
-        
-        if (context) |ctx| {
-            stderr.print(" ('{s}')", .{ctx}) catch {};
-        }
-        
-        if (suggestion) |sug| {
-            stderr.print("\n\nSuggestion: {s}", .{sug}) catch {};
-        }
-        
-        stderr.print("\n", .{}) catch {};
+    // Print colored error message
+    config.setColor(stderr, .red) catch {};
+    stderr.print("Error: ", .{}) catch {};
+    config.setColor(stderr, .reset) catch {};
+    stderr.print("{s}", .{message}) catch {};
+    
+    if (context) |ctx| {
+        stderr.print(" (", .{}) catch {};
+        config.setColor(stderr, .bright_red) catch {};
+        stderr.print("'{s}'", .{ctx}) catch {};
+        config.setColor(stderr, .reset) catch {};
+        stderr.print(")", .{}) catch {};
     }
+    
+    if (suggestion) |sug| {
+        stderr.print("\n\n", .{}) catch {};
+        config.setColor(stderr, .yellow) catch {};
+        stderr.print("Suggestion: ", .{}) catch {};
+        config.setColor(stderr, .reset) catch {};
+        stderr.print("{s}", .{sug}) catch {};
+    }
+    
+    stderr.print("\n", .{}) catch {};
 }
 
 
@@ -94,85 +87,65 @@ pub fn printOption(short: ?u8, long: []const u8, value_type: ?[]const u8, requir
     }
     
     const stdout = std.io.getStdOut().writer();
+    const config = getStdoutConfig();
     
     stdout.print("  ", .{}) catch {};
     
-    if (supportsColor()) {
-        // Short flag
-        if (short) |s| {
-            stdout.print("{s}-{c}, {s}", .{ AnsiColors.green, s, AnsiColors.reset }) catch {};
-        } else {
-            stdout.print("    ", .{}) catch {};
-        }
-        
-        // Long flag
-        stdout.print("{s}--{s}{s}", .{ AnsiColors.green, long, AnsiColors.reset }) catch {};
-        
-        // Value type indicator
-        if (value_type) |vtype| {
-            stdout.print(" ", .{}) catch {};
-            if (required) {
-                stdout.print("{s}<{s}>{s}", .{ AnsiColors.red, vtype, AnsiColors.reset }) catch {};
-            } else {
-                stdout.print("{s}[{s}]{s}", .{ AnsiColors.dim, vtype, AnsiColors.reset }) catch {};
-            }
-        }
-        
-        // Padding
-        const current_len = calculateOptionLength(short, long, value_type, required);
-        const padding_needed = if (current_len < 25) 25 - current_len else 1;
-        var i: usize = 0;
-        while (i < padding_needed) : (i += 1) {
-            stdout.print(" ", .{}) catch {};
-        }
-        
-        // Description
-        stdout.print("{s}", .{description}) catch {};
-        
-        // Default value or required indicator
-        if (default_value) |default| {
-            stdout.print(" (default: {s}{s}{s})", .{ AnsiColors.magenta, default, AnsiColors.reset }) catch {};
-        } else if (required) {
-            stdout.print(" ({s}required{s})", .{ AnsiColors.red, AnsiColors.reset }) catch {};
-        }
-        
-        stdout.print("\n", .{}) catch {};
+    // Short flag
+    if (short) |s| {
+        config.setColor(stdout, .green) catch {};
+        stdout.print("-{c}, ", .{s}) catch {};
+        config.setColor(stdout, .reset) catch {};
     } else {
-        // Plain text version
-        if (short) |s| {
-            stdout.print("-{c}, ", .{s}) catch {};
-        } else {
-            stdout.print("    ", .{}) catch {};
-        }
-        
-        stdout.print("--{s}", .{long}) catch {};
-        
-        if (value_type) |vtype| {
-            stdout.print(" ", .{}) catch {};
-            if (required) {
-                stdout.print("<{s}>", .{vtype}) catch {};
-            } else {
-                stdout.print("[{s}]", .{vtype}) catch {};
-            }
-        }
-        
-        const current_len = calculateOptionLength(short, long, value_type, required);
-        const padding_needed = if (current_len < 25) 25 - current_len else 1;
-        var i: usize = 0;
-        while (i < padding_needed) : (i += 1) {
-            stdout.print(" ", .{}) catch {};
-        }
-        
-        stdout.print("{s}", .{description}) catch {};
-        
-        if (default_value) |default| {
-            stdout.print(" (default: {s})", .{default}) catch {};
-        } else if (required) {
-            stdout.print(" (required)", .{}) catch {};
-        }
-        
-        stdout.print("\n", .{}) catch {};
+        stdout.print("    ", .{}) catch {};
     }
+    
+    // Long flag
+    config.setColor(stdout, .green) catch {};
+    stdout.print("--{s}", .{long}) catch {};
+    config.setColor(stdout, .reset) catch {};
+    
+    // Value type indicator
+    if (value_type) |vtype| {
+        stdout.print(" ", .{}) catch {};
+        if (required) {
+            config.setColor(stdout, .red) catch {};
+            stdout.print("<{s}>", .{vtype}) catch {};
+            config.setColor(stdout, .reset) catch {};
+        } else {
+            config.setColor(stdout, .dim) catch {};
+            stdout.print("[{s}]", .{vtype}) catch {};
+            config.setColor(stdout, .reset) catch {};
+        }
+    }
+    
+    // Padding
+    const current_len = calculateOptionLength(short, long, value_type, required);
+    const padding_needed = if (current_len < 25) 25 - current_len else 1;
+    var i: usize = 0;
+    while (i < padding_needed) : (i += 1) {
+        stdout.print(" ", .{}) catch {};
+    }
+    
+    // Description
+    stdout.print("{s}", .{description}) catch {};
+    
+    // Default value or required indicator
+    if (default_value) |default| {
+        stdout.print(" (default: ", .{}) catch {};
+        config.setColor(stdout, .magenta) catch {};
+        stdout.print("{s}", .{default}) catch {};
+        config.setColor(stdout, .reset) catch {};
+        stdout.print(")", .{}) catch {};
+    } else if (required) {
+        stdout.print(" (", .{}) catch {};
+        config.setColor(stdout, .red) catch {};
+        stdout.print("required", .{}) catch {};
+        config.setColor(stdout, .reset) catch {};
+        stdout.print(")", .{}) catch {};
+    }
+    
+    stdout.print("\n", .{}) catch {};
 }
 
 
@@ -197,8 +170,10 @@ fn calculateOptionLength(short: ?u8, long: []const u8, value_type: ?[]const u8, 
 }
 
 test "color support detection" {
-    // This test just ensures the function compiles and runs
+    // Test stdlib TTY detection
     _ = supportsColor();
+    _ = getStderrConfig();
+    _ = getStdoutConfig();
 }
 
 
