@@ -78,7 +78,7 @@ pub fn parseProcess(comptime T: type, allocator: std.mem.Allocator) !ParsedType(
 
 /// Generate formatted help text for the specified type
 pub fn help(comptime T: type, allocator: std.mem.Allocator) ![]const u8 {
-    return help_gen.formatHelp(T, allocator, false, null); // Plain text version
+    return help_gen.formatHelp(T, allocator, null); // Automatically detects color support
 }
 
 

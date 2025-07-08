@@ -33,7 +33,7 @@ fn extractProgramName(allocator: std.mem.Allocator) ![]const u8 {
 
 
 /// Generate formatted help text for a type
-pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool, program_name: ?[]const u8) ![]const u8 {
+pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: ?[]const u8) ![]const u8 {
     // Extract field metadata at compile time
     const field_info = comptime meta.extractFields(T);
     
@@ -42,11 +42,11 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
     
     // Helper function to add colored or plain text
     const addText = struct {
-        fn call(list: *std.ArrayList(u8), color: []const u8, text: []const u8, reset: []const u8, use_color: bool) !void {
-            if (use_color) {
-                try list.appendSlice(color);
+        fn call(list: *std.ArrayList(u8), color: colors.tty.Color, text: []const u8) !void {
+            if (colors.supportsColor()) {
+                try list.appendSlice(colors.getAnsiSequence(color));
                 try list.appendSlice(text);
-                try list.appendSlice(reset);
+                try list.appendSlice(colors.getAnsiSequence(.reset));
             } else {
                 try list.appendSlice(text);
             }
@@ -54,21 +54,13 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
     }.call;
     
     // Title
-    if (colored) {
-        try addText(&help_text, colors.AnsiColors.bright_cyan, "CLI Application", colors.AnsiColors.reset, colored);
-    } else {
-        try help_text.appendSlice("CLI Application");
-    }
+    try addText(&help_text, .bright_cyan, "CLI Application");
     try help_text.appendSlice("\n\n");
     
     // Usage line with actual program name
     try help_text.appendSlice("Usage: ");
     const actual_program_name = program_name orelse "program";
-    if (colored) {
-        try addText(&help_text, colors.AnsiColors.bright_white, actual_program_name, colors.AnsiColors.reset, colored);
-    } else {
-        try help_text.appendSlice(actual_program_name);
-    }
+    try addText(&help_text, .bright_white, actual_program_name);
     
     // Add options if any non-positional fields exist
     comptime var has_options = false;
@@ -89,11 +81,7 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
     inline for (field_info) |field| {
         if (field.positional) {
             if (!has_positional) {
-                if (colored) {
-                    try addText(&help_text, colors.AnsiColors.dim, " [ARGS...]", colors.AnsiColors.reset, colored);
-                } else {
-                    try help_text.appendSlice(" [ARGS...]");
-                }
+                try addText(&help_text, .dim, " [ARGS...]");
                 has_positional = true;
             }
         }
@@ -101,11 +89,7 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
     try help_text.appendSlice("\n\n");
     
     // Options section
-    if (colored) {
-        try addText(&help_text, colors.AnsiColors.bold, "Options:", colors.AnsiColors.reset, colored);
-    } else {
-        try help_text.appendSlice("Options:");
-    }
+    try addText(&help_text, .bold, "Options:");
     try help_text.appendSlice("\n");
     
     // Calculate the maximum width for proper alignment
@@ -155,46 +139,27 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
             
             // Short flag
             if (field.short) |short| {
-                if (colored) {
-                    try addText(&help_text, colors.AnsiColors.green, "-", colors.AnsiColors.reset, colored);
-                    try help_text.append(short);
-                    try addText(&help_text, colors.AnsiColors.reset, ", ", "", colored);
-                } else {
-                    try help_text.append('-');
-                    try help_text.append(short);
-                    try help_text.appendSlice(", ");
-                }
+                try addText(&help_text, .green, "-");
+                try help_text.append(short);
+                try addText(&help_text, .green, ", ");
                 option_width += 4;
             } else {
                 try help_text.appendSlice("    ");
                 option_width += 4;
             }
             
-            // Long flag
-            if (colored) {
-                try addText(&help_text, colors.AnsiColors.green, "--", colors.AnsiColors.reset, colored);
-                try addText(&help_text, colors.AnsiColors.green, field.name, colors.AnsiColors.reset, colored);
-            } else {
-                try help_text.appendSlice("--");
-                try help_text.appendSlice(field.name);
-            }
+            // Long flag  
+            try addText(&help_text, .green, "--");
+            try addText(&help_text, .green, field.name);
             option_width += 2 + field.name.len;
             
             // Value type indicator
             if (!is_bool) {
                 try help_text.appendSlice(" ");
                 if (field.required) {
-                    if (colored) {
-                        try addText(&help_text, colors.AnsiColors.red, "<value>", colors.AnsiColors.reset, colored);
-                    } else {
-                        try help_text.appendSlice("<value>");
-                    }
+                    try addText(&help_text, .red, "<value>");
                 } else {
-                    if (colored) {
-                        try addText(&help_text, colors.AnsiColors.dim, "[value]", colors.AnsiColors.reset, colored);
-                    } else {
-                        try help_text.appendSlice("[value]");
-                    }
+                    try addText(&help_text, .dim, "[value]");
                 }
                 option_width += 8;
             }
@@ -212,23 +177,13 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
             
             // Default value or required indicator
             if (field.default) |default| {
-                if (colored) {
-                    try help_text.appendSlice(" (default: ");
-                    try addText(&help_text, colors.AnsiColors.magenta, default, colors.AnsiColors.reset, colored);
-                    try help_text.appendSlice(")");
-                } else {
-                    try help_text.appendSlice(" (default: ");
-                    try help_text.appendSlice(default);
-                    try help_text.appendSlice(")");
-                }
+                try help_text.appendSlice(" (default: ");
+                try addText(&help_text, .magenta, default);
+                try help_text.appendSlice(")");
             } else if (field.required) {
-                if (colored) {
-                    try help_text.appendSlice(" (");
-                    try addText(&help_text, colors.AnsiColors.red, "required", colors.AnsiColors.reset, colored);
-                    try help_text.appendSlice(")");
-                } else {
-                    try help_text.appendSlice(" (required)");
-                }
+                try help_text.appendSlice(" (");
+                try addText(&help_text, .red, "required");
+                try help_text.appendSlice(")");
             }
             
             try help_text.appendSlice("\n");
@@ -247,11 +202,7 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
     
     if (!has_user_help) {
         try help_text.appendSlice("  ");
-        if (colored) {
-            try addText(&help_text, colors.AnsiColors.green, "-h, --help", colors.AnsiColors.reset, colored);
-        } else {
-            try help_text.appendSlice("-h, --help");
-        }
+        try addText(&help_text, .green, "-h, --help");
         
         // Add proper padding for help option
         const help_option_width = 2 + 4 + 6; // "  " + "-h, " + "--help"
@@ -286,11 +237,7 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
         if (field.positional) {
             if (!has_printed_pos_header) {
                 try help_text.appendSlice("\n");
-                if (colored) {
-                    try addText(&help_text, colors.AnsiColors.bold, "Arguments:", colors.AnsiColors.reset, colored);
-                } else {
-                    try help_text.appendSlice("Arguments:");
-                }
+                try addText(&help_text, .bold, "Arguments:");
                 try help_text.appendSlice("\n");
                 has_printed_pos_header = true;
             }
@@ -299,11 +246,7 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, colored: bool,
             try help_text.appendSlice("  ");
             arg_width += 2;
             
-            if (colored) {
-                try addText(&help_text, colors.AnsiColors.green, field.name, colors.AnsiColors.reset, colored);
-            } else {
-                try help_text.appendSlice(field.name);
-            }
+            try addText(&help_text, .green, field.name);
             arg_width += field.name.len;
             
             // Add padding to align descriptions
@@ -338,7 +281,7 @@ pub fn printHelp(comptime T: type) void {
     const program_name = extractProgramName(arena.allocator()) catch "program";
     
     // Generate help text with color support and actual program name
-    const help_text = formatHelp(T, arena.allocator(), colors.supportsColor(), program_name) catch {
+    const help_text = formatHelp(T, arena.allocator(), program_name) catch {
         // Fallback if allocation fails
         const stdout = std.io.getStdOut().writer();
         stdout.print("Error: Unable to generate help text\n", .{}) catch {};
@@ -429,7 +372,7 @@ test "generate basic help" {
     defer arena.deinit();
     
     // Use formatHelp for testing
-    const help_text = try formatHelp(TestArgs, arena.allocator(), false, "test-program");
+    const help_text = try formatHelp(TestArgs, arena.allocator(), "test-program");
     defer arena.allocator().free(help_text);
     
     // Check that it returns the expected basic help string
