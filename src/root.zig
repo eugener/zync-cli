@@ -125,61 +125,25 @@ test "library compiles" {
     _ = Parser;
 }
 
-test "automatic DSL API works" {
+test "automatic DSL integration" {
     const TestArgs = Args(&.{
         flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
         option("name", []const u8, .{ .short = 'n', .default = "Test", .help = "Set name" }),
-    });
-    
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    
-    const test_args = &.{"--verbose", "--name", "Alice"};
-    
-    // Test automatic DSL API
-    const result = try parse(TestArgs, arena.allocator(), test_args);
-    
-    try testing.expect(result.verbose == true);
-    try testing.expectEqualStrings(result.name, "Alice");
-}
-
-test "Parser type works with automatic DSL" {
-    const TestArgs = Args(&.{
-        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
         option("count", u32, .{ .short = 'c', .default = 5, .help = "Set count" }),
     });
     
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     
-    const test_args = &.{"--verbose", "--count", "10"};
-    
-    // Test Parser type with automatic DSL
-    const result = try parse(TestArgs, arena.allocator(), test_args);
-    
-    try testing.expect(result.verbose == true);
-    try testing.expect(result.count == 10);
-    
-    // Test help generation 
-    const help_text = try help(TestArgs, arena.allocator());
-    try testing.expect(help_text.len > 0);
-}
-
-test "new automatic DSL integration" {
-    // Test the new automatic DSL works end-to-end
-    const TestArgs = Args(&.{
-        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-        option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Set name" }),
-        option("count", u32, .{ .short = 'c', .default = 5, .help = "Set count" }),
-    });
-    
-    var arena = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    
+    // Test parsing with mixed args
     const test_args = &.{"-v", "--name", "Alice", "--count", "10"};
     const result = try parse(TestArgs, arena.allocator(), test_args);
     
     try testing.expect(result.verbose == true);
     try testing.expectEqualStrings(result.name, "Alice");
     try testing.expect(result.count == 10);
+    
+    // Test help generation
+    const help_text = try help(TestArgs, arena.allocator());
+    try testing.expect(help_text.len > 0);
 }

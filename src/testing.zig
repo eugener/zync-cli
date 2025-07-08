@@ -117,28 +117,33 @@ test "parseAndCleanup" {
     try expect(args.verbose == false);
 }
 
-test "expectEqual struct" {
-    const TestArgs = struct {
-        verbose: bool = false,
-        count: u32 = 42,
-    };
+test "expectEqual functionality" {
+    // Test struct equality
+    {
+        const TestArgs = struct {
+            verbose: bool = false,
+            count: u32 = 42,
+        };
+        
+        const expected = TestArgs{ .verbose = true, .count = 42 };
+        const actual = TestArgs{ .verbose = true, .count = 42 };
+        
+        try expectEqualValues(TestArgs, expected, actual);
+    }
     
-    const expected = TestArgs{ .verbose = true, .count = 42 };
-    const actual = TestArgs{ .verbose = true, .count = 42 };
+    // Test string equality
+    {
+        try expectEqualValues([]const u8, "hello", "hello");
+    }
     
-    try expectEqualValues(TestArgs, expected, actual);
-}
-
-test "expectEqual string" {
-    try expectEqualValues([]const u8, "hello", "hello");
-}
-
-test "expectEqual optional" {
-    const expected: ?u32 = 42;
-    const actual: ?u32 = 42;
-    try expectEqualValues(?u32, expected, actual);
-    
-    const expected_null: ?u32 = null;
-    const actual_null: ?u32 = null;
-    try expectEqualValues(?u32, expected_null, actual_null);
+    // Test optional equality
+    {
+        const expected: ?u32 = 42;
+        const actual: ?u32 = 42;
+        try expectEqualValues(?u32, expected, actual);
+        
+        const expected_null: ?u32 = null;
+        const actual_null: ?u32 = null;
+        try expectEqualValues(?u32, expected_null, actual_null);
+    }
 }
