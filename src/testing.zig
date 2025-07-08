@@ -17,14 +17,10 @@ pub fn parse(comptime T: type, args: []const []const u8) !T {
     return parser.parseFrom(T, arena.allocator(), args);
 }
 
-/// Parse arguments and automatically clean up memory (same as parse now)
-pub fn parseAndCleanup(comptime T: type, args: []const []const u8) !T {
-    return parse(T, args);
-}
 
 /// Expect that parsing succeeds and returns the expected result
 pub fn expectParse(comptime T: type, args: []const []const u8, expected: T) !void {
-    const result = try parseAndCleanup(T, args);
+    const result = try parse(T, args);
     try expectEqualValues(T, expected, result);
 }
 
@@ -89,12 +85,6 @@ fn expectEqualValues(comptime T: type, expected: T, actual: T) !void {
     }
 }
 
-// Re-export common testing functions for convenience
-pub const expect = std.testing.expect;
-pub const expectEqual = std.testing.expectEqual;
-pub const expectEqualStrings = std.testing.expectEqualStrings;
-pub const expectError = std.testing.expectError;
-pub const allocator = std.testing.allocator;
 
 test "parse basic arguments" {
     const TestArgs = struct {
@@ -104,18 +94,10 @@ test "parse basic arguments" {
     
     const result = try parse(TestArgs, &.{});
     
-    try expect(result.verbose == false);
-    try expect(result.count == 0);
+    try std.testing.expect(result.verbose == false);
+    try std.testing.expect(result.count == 0);
 }
 
-test "parseAndCleanup" {
-    const TestArgs = struct {
-        verbose: bool = false,
-    };
-    
-    const args = try parseAndCleanup(TestArgs, &.{});
-    try expect(args.verbose == false);
-}
 
 test "expectEqual functionality" {
     // Test struct equality

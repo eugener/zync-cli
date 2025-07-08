@@ -228,7 +228,7 @@ pub fn Args(comptime field_definitions: anytype) type {
 }
 
 /// Check if a type is a FieldDef type
-fn isFieldDef(comptime T: type) bool {
+fn isFieldDefinition(comptime T: type) bool {
     const type_info = @typeInfo(T);
     if (type_info != .@"struct") return false;
     

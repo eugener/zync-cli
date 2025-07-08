@@ -49,7 +49,7 @@ pub const PositionalConfig = cli.PositionalConfig;
 
 /// Parse command-line arguments into the specified type
 /// Only supports automatic DSL types with ArgsType
-pub fn parse(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !ParseReturnType(T) {
+pub fn parse(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !ParsedType(T) {
     // Only handle automatic DSL types that have ArgsType
     if (@hasDecl(T, "ArgsType")) {
         return parser.parseFromWithMeta(T.ArgsType, T, allocator, args);
@@ -59,7 +59,7 @@ pub fn parse(comptime T: type, allocator: std.mem.Allocator, args: []const []con
 }
 
 /// Helper to determine the return type for parsing
-fn ParseReturnType(comptime T: type) type {
+fn ParsedType(comptime T: type) type {
     if (@hasDecl(T, "ArgsType")) {
         return T.ArgsType;
     } else {
@@ -68,7 +68,7 @@ fn ParseReturnType(comptime T: type) type {
 }
 
 /// Parse from process arguments
-pub fn parseProcess(comptime T: type, allocator: std.mem.Allocator) !ParseReturnType(T) {
+pub fn parseProcess(comptime T: type, allocator: std.mem.Allocator) !ParsedType(T) {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
     // Skip the program name (first argument)
@@ -78,52 +78,16 @@ pub fn parseProcess(comptime T: type, allocator: std.mem.Allocator) !ParseReturn
 
 /// Generate formatted help text for the specified type
 pub fn help(comptime T: type, allocator: std.mem.Allocator) ![]const u8 {
-    return help_gen.formatHelp(T, allocator, false); // Plain text version
+    return help_gen.formatHelp(T, allocator, false, null); // Plain text version
 }
 
-/// Generate help text for the specified type (backwards compatibility)
-pub fn helpBasic(comptime T: type) []const u8 {
-    return help_gen.generate(T);
-}
 
 /// Validate arguments structure at compile time
 pub fn validate(comptime T: type) void {
     return meta.validate(T);
 }
 
-/// Type-specific parser with compile-time optimization
-pub fn Parser(comptime T: type) type {
-    return struct {
-        const Self = @This();
-        const fields = meta.extractFields(T);
-        
-        /// Parse arguments into the specified type
-        pub fn parse(allocator: std.mem.Allocator, args: []const []const u8) !T {
-            return parser.parseFrom(T, allocator, args);
-        }
-        
-        /// Generate formatted help text for this type
-        pub fn help(allocator: std.mem.Allocator) ![]const u8 {
-            return help_gen.formatHelp(T, allocator, false);
-        }
-        
-        /// Generate basic help text for this type (backwards compatibility)
-        pub fn helpBasic() []const u8 {
-            return help_gen.generate(T);
-        }
-        
-        /// Get field metadata for this type
-        pub fn getFields() []const FieldMetadata {
-            return fields;
-        }
-    };
-}
 
-// Basic test to ensure library compiles
-test "library compiles" {
-    // Just test that the library compiles
-    _ = Parser;
-}
 
 test "automatic DSL integration" {
     const TestArgs = Args(&.{

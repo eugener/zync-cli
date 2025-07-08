@@ -30,7 +30,7 @@ pub const ParseError = error{
 
 /// Parse arguments from a string array into the specified type
 pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !T {
-    return parseFromWithDetails(T, allocator, args) catch |err| {
+    return parseFromWithMeta(T, T, allocator, args) catch |err| {
         return err;
     };
 }
@@ -42,52 +42,6 @@ pub fn parseFromWithMeta(comptime TargetType: type, comptime MetaType: type, all
     };
 }
 
-/// Parse arguments with detailed error information
-pub fn parseFromWithDetails(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !T {
-    // Validate the structure at compile time
-    comptime meta.validate(T);
-    
-    // Check for help flags FIRST, before any validation
-    try checkForHelpRequest(T, args);
-    
-    // Initialize the result structure with defaults
-    var result = T{};
-    
-    // Track which fields were provided
-    var provided_fields = std.ArrayList([]const u8).init(allocator);
-    defer provided_fields.deinit();
-    
-    // Extract field metadata at compile time
-    const field_info = comptime meta.extractFields(T);
-    
-    // Use all provided arguments (don't skip any)
-    const cli_args = args;
-    
-    // Parse arguments
-    var i: usize = 0;
-    while (i < cli_args.len) {
-        const arg = cli_args[i];
-        
-        if (std.mem.startsWith(u8, arg, "--")) {
-            // Long flag (--flag or --flag=value)
-            i = try parseLongFlag(T, field_info, &result, cli_args, i, &provided_fields, allocator);
-        } else if (std.mem.startsWith(u8, arg, "-") and arg.len > 1) {
-            // Short flag (-f or -fvalue)
-            i = try parseShortFlag(T, field_info, &result, cli_args, i, &provided_fields, allocator);
-        } else {
-            // Positional argument
-            i = try parsePositional(T, field_info, &result, cli_args, i, &provided_fields, allocator);
-        }
-    }
-    
-    // Apply default values for fields that weren't provided
-    try applyDefaults(T, field_info, &result, provided_fields.items, allocator);
-    
-    // Check for missing required arguments
-    try validateRequired(T, field_info, result, provided_fields.items, allocator);
-    
-    return result;
-}
 
 /// Parse arguments with detailed error information using separate metadata type
 pub fn parseFromWithDetailsAndMeta(comptime TargetType: type, comptime MetaType: type, allocator: std.mem.Allocator, args: []const []const u8) !TargetType {
@@ -173,7 +127,7 @@ fn parseLongFlag(
         
         if (findFieldByName(field_info, flag_name)) |field_index| {
             const field = field_info[field_index];
-            if (isBooleanField(T, field)) {
+            if (isFieldBoolean(T, field)) {
                 // Boolean flag, set to true
                 try setFieldValue(T, result, field, "true", allocator);
                 try provided_fields.append(field.name);
@@ -223,7 +177,7 @@ fn parseShortFlag(
             try setFieldValue(T, result, field, flag_value, allocator);
             try provided_fields.append(field.name);
             return index + 1;
-        } else if (isBooleanField(T, field)) {
+        } else if (isFieldBoolean(T, field)) {
             // Boolean flag
             try setFieldValue(T, result, field, "true", allocator);
             try provided_fields.append(field.name);
@@ -328,7 +282,7 @@ fn countProvidedPositional(field_info: anytype, provided: []const []const u8) us
 }
 
 /// Check if a field is boolean
-fn isBooleanField(comptime T: type, field: meta.FieldMetadata) bool {
+fn isFieldBoolean(comptime T: type, field: meta.FieldMetadata) bool {
     const struct_fields = std.meta.fields(T);
     inline for (struct_fields) |struct_field| {
         if (std.mem.eql(u8, struct_field.name, field.name) or

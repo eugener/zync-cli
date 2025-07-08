@@ -112,19 +112,6 @@ pub fn extractFields(comptime T: type) []const FieldMetadata {
     }
 }
 
-/// Extract metadata from function-based DSL field definitions
-fn extractFunctionBasedMetadata(comptime field: std.builtin.Type.StructField) ?FieldMetadata {
-    // Function-based DSL metadata extraction is complex in Zig because we need to 
-    // analyze compile-time function call expressions in default values.
-    // 
-    // For now, we use a convention where function-based DSL structs declare
-    // metadata explicitly using a `dsl_metadata` declaration.
-    // 
-    // This will be enhanced in the future to automatically detect DSL function calls.
-    
-    _ = field;
-    return null;
-}
 
 /// Extract metadata for structs using function-based DSL with explicit metadata
 fn extractDslMetadata(comptime T: type) ?[]const FieldMetadata {

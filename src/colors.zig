@@ -84,26 +84,7 @@ pub fn printError(message: []const u8, context: ?[]const u8, suggestion: ?[]cons
     }
 }
 
-/// Format error message with colors (legacy function for compatibility)
-pub fn formatError(allocator: std.mem.Allocator, message: []const u8, context: ?[]const u8, suggestion: ?[]const u8) ![]const u8 {
-    _ = allocator;
-    // For now, just print directly and return empty string
-    printError(message, context, suggestion);
-    return "";
-}
 
-/// Legacy function - now redirects to dynamic help generation
-/// This function is deprecated and should not be used directly
-pub fn printHelp() void {
-    // This is now just a stub - dynamic help should be used instead
-    // In test mode, do nothing to avoid hanging
-    if (@import("builtin").is_test) {
-        return;
-    }
-    
-    const stdout = std.io.getStdOut().writer();
-    stdout.print("Error: printHelp() called without struct type. Use help.printHelp(T) instead.\n", .{}) catch {};
-}
 
 /// Print a single colorized option line
 pub fn printOption(short: ?u8, long: []const u8, value_type: ?[]const u8, required: bool, default_value: ?[]const u8, description: []const u8) void {
@@ -138,7 +119,7 @@ pub fn printOption(short: ?u8, long: []const u8, value_type: ?[]const u8, requir
         }
         
         // Padding
-        const current_len = calculateLength(short, long, value_type, required);
+        const current_len = calculateOptionLength(short, long, value_type, required);
         const padding_needed = if (current_len < 25) 25 - current_len else 1;
         var i: usize = 0;
         while (i < padding_needed) : (i += 1) {
@@ -175,7 +156,7 @@ pub fn printOption(short: ?u8, long: []const u8, value_type: ?[]const u8, requir
             }
         }
         
-        const current_len = calculateLength(short, long, value_type, required);
+        const current_len = calculateOptionLength(short, long, value_type, required);
         const padding_needed = if (current_len < 25) 25 - current_len else 1;
         var i: usize = 0;
         while (i < padding_needed) : (i += 1) {
@@ -196,7 +177,7 @@ pub fn printOption(short: ?u8, long: []const u8, value_type: ?[]const u8, requir
 
 
 /// Calculate the length of an option line for padding
-fn calculateLength(short: ?u8, long: []const u8, value_type: ?[]const u8, required: bool) usize {
+fn calculateOptionLength(short: ?u8, long: []const u8, value_type: ?[]const u8, required: bool) usize {
     _ = required;
     var len: usize = 2; // "  "
     
@@ -220,15 +201,8 @@ test "color support detection" {
     _ = supportsColor();
 }
 
-test "format error message" {
-    // formatError now just prints and returns empty string
-    const formatted = formatError(std.testing.allocator, "Test error", "flag", "Use --help") catch "";
-    // Since it prints directly, we just check it doesn't crash
-    _ = formatted;
-}
 
 test "print option functionality" {
     // Test that the color functions don't crash
     printError("Test error", "context", "suggestion");
-    // Note: printHelp() is deprecated - dynamic help should be tested in help.zig
 }

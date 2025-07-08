@@ -25,7 +25,10 @@ pub fn main() !void {
             // Help was automatically displayed by the parser
             return;
         },
-        else => return err,
+        else => {
+            // Error was already printed by the parser, just exit with error code
+            std.process.exit(1);
+        },
     };
 
     if (args.verbose) {
