@@ -11,7 +11,7 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 
 - **Zero Runtime Overhead** - All parsing logic resolved at compile time
 - **Type Safe** - Full compile-time type checking and validation
-- **Dual DSL Support** - Both modern function-based and legacy field encoding syntax
+- **Automatic DSL** - Zero-duplication, automatic metadata extraction
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
 - **Battle Tested** - 156 comprehensive tests covering all functionality
@@ -34,32 +34,17 @@ const zync_cli = b.dependency("zync-cli", .{
 exe.root_module.addImport("zync-cli", zync_cli.module("zync-cli"));
 ```
 
-### Basic Usage (Function-Based DSL)
+### Basic Usage
 
 ```zig
 const std = @import("std");
 const zync_cli = @import("zync-cli");
 
-const Args = struct {
-    verbose: bool = zync_cli.flag(.{ .short = 'v', .help = "Enable verbose output" }),
-    name: []const u8 = zync_cli.option(zync_cli.OptionConfig([]const u8){ 
-        .short = 'n', 
-        .default = "World", 
-        .help = "Name to greet" 
-    }),
-    count: u32 = zync_cli.option(zync_cli.Option(u32){ 
-        .short = 'c', 
-        .default = 1, 
-        .help = "Number of times to greet" 
-    }),
-    
-    // Enhanced metadata using helper functions (eliminates duplication!)
-    pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
-        zync_cli.flagMeta("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-        zync_cli.optionMeta([]const u8, "name", .{ .short = 'n', .default = "World", .help = "Name to greet" }),
-        zync_cli.optionMeta(u32, "count", .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
-    };
-};
+const Args = zync_cli.Args(&.{
+    zync_cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    zync_cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+    zync_cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
+});
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -84,17 +69,6 @@ pub fn main() !void {
 }
 ```
 
-### Legacy Field Encoding DSL (Still Supported)
-
-```zig
-const Args = struct {
-    @"verbose|v": bool = false,
-    @"name|n=World": []const u8 = "",
-    @"count|c=1": u32 = 0,
-};
-
-// Usage: args.@"verbose|v", args.@"name|n=World", etc.
-```
 
 **Running the example:**
 ```bash
@@ -176,11 +150,9 @@ FORCE_COLOR=1 ./myapp --help
 ./myapp --help
 ```
 
-## Dual DSL Support
+## Automatic DSL
 
-Zync-CLI supports two approaches for defining CLI arguments:
-
-### 1. Modern Function-Based DSL (Recommended)
+Zync-CLI uses an automatic DSL for defining CLI arguments:
 
 Clean, IDE-friendly syntax with explicit configuration:
 
@@ -216,9 +188,9 @@ const Args = struct {
 - Type-safe configuration structs
 - Future-proof for advanced features
 
-### 2. Enhanced Metadata Helpers
+### Enhanced Features
 
-The function-based DSL now includes helper functions that eliminate duplication and ensure type safety:
+The automatic DSL includes powerful features that eliminate duplication and ensure type safety:
 
 ```zig
 const Args = struct {
@@ -258,47 +230,7 @@ const Args = struct {
 - **Automatic conversion** - Numbers and booleans automatically converted to string defaults
 - **Clean syntax** - Much more readable than manual FieldMetadata construction
 
-### 3. Legacy Field Encoding DSL (Still Supported)
 
-Compact syntax embedded in struct field names:
-
-### Syntax Reference
-
-| Syntax | Description | Example |
-|--------|-------------|---------|
-| `\|x` | Short flag | `@"verbose\|v"` → `--verbose`, `-v` |
-| `!` | Required field | `@"config\|c!"` → Must be provided |
-| `=value` | Default value | `@"port\|p=8080"` → Defaults to 8080 |
-| `#` | Positional argument | `@"#input"` → Positional parameter |
-| `*` | Multiple values | `@"files\|f*"` → Accept multiple files |
-| `+` | Counting flag | `@"verbose\|v+"` → `-vvv` for level 3 |
-| `$VAR` | Environment variable | `@"token\|t$API_TOKEN"` → From env var |
-
-### Examples
-
-```zig
-const Config = struct {
-    // Basic flags
-    @"verbose|v": bool = false,
-    @"quiet|q": bool = false,
-    
-    // Required string argument
-    @"config|c!": []const u8,
-    
-    // Optional with default
-    @"port|p=8080": u16,
-    @"host|h=localhost": []const u8,
-    
-    // Positional arguments
-    @"#input": []const u8,
-    @"#output": ?[]const u8 = null,
-    
-    // Advanced features (planned)
-    @"files|f*": [][]const u8,      // Multiple values
-    @"debug|d+": u8,               // Counting (-ddd = 3)
-    @"token|t$API_TOKEN": []const u8, // From environment
-};
-```
 
 ## Supported Types
 
@@ -494,13 +426,11 @@ test "my CLI parsing" {
 ### Current Test Coverage
 
 - **156 total tests** across all modules
-- **Dual DSL support** - Both function-based and field encoding DSL
-- **Function-based DSL** configuration and metadata extraction
-- **Field encoding DSL** parsing and validation  
+- **Automatic DSL** - Zero-duplication, automatic metadata extraction
 - **Argument parsing** for all supported types
-- **Required field validation** with `!` syntax and `required()` function
-- **Default value handling** with `=value` syntax and `option()` function
-- **Positional arguments** with `#` syntax and `positional()` function
+- **Required field validation** with `required()` function
+- **Default value handling** with `option()` function
+- **Positional arguments** with `positional()` function
 - **Automatic help handling** with `--help` and `-h` flags
 - **Error handling** for all error conditions
 - **Memory management** with arena allocation
@@ -624,8 +554,7 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 - [x] ANSI color support with graceful fallback
 
 ### Completed (v0.4.0)
-- [x] Function-based DSL with clean, IDE-friendly syntax
-- [x] Dual DSL support (function-based + legacy field encoding)
+- [x] Automatic DSL with zero-duplication metadata extraction
 - [x] Enhanced metadata system with explicit configuration
 - [x] Rich help text with descriptions and type information
 - [x] Type-safe configuration structs

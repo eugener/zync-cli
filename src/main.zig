@@ -13,6 +13,7 @@ const Args = cli.Args(&.{
     cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
     cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port number to listen on" }),
     cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path" }),
+    cli.positional("input", []const u8, .{ .default = "stdin", .required = false, .help = "Input file to process" }),
 });
 
 pub fn main() !void {
@@ -34,6 +35,7 @@ pub fn main() !void {
         std.debug.print("  count: {}\n", .{args.count});
         std.debug.print("  port: {}\n", .{args.port});
         std.debug.print("  config: {s}\n", .{args.config});
+        std.debug.print("  input: {s}\n", .{args.input});
     }
 
     var i: u32 = 0;

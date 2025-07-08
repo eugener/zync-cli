@@ -7,10 +7,10 @@
 //! ```zig
 //! const zync_cli = @import("zync-cli");
 //! 
-//! const Args = struct {
-//!     @"verbose|v": bool = false,
-//!     @"#input": []const u8,
-//! };
+//! const Args = zync_cli.Args(&.{
+//!     zync_cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+//!     zync_cli.positional("input", []const u8, .{ .help = "Input file" }),
+//! });
 //!
 //! pub fn main() !void {
 //!     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -48,13 +48,13 @@ pub const RequiredConfig = cli.RequiredConfig;
 pub const PositionalConfig = cli.PositionalConfig;
 
 /// Parse command-line arguments into the specified type
-/// Uses arena allocation for simple memory management
+/// Only supports automatic DSL types with ArgsType
 pub fn parse(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !ParseReturnType(T) {
-    // Handle automatic DSL types that have ArgsType
+    // Only handle automatic DSL types that have ArgsType
     if (@hasDecl(T, "ArgsType")) {
         return parser.parseFromWithMeta(T.ArgsType, T, allocator, args);
     } else {
-        return parser.parseFrom(T, allocator, args);
+        @compileError("Only automatic DSL types are supported. Use zync_cli.Args() to create your argument struct.");
     }
 }
 
@@ -63,7 +63,7 @@ fn ParseReturnType(comptime T: type) type {
     if (@hasDecl(T, "ArgsType")) {
         return T.ArgsType;
     } else {
-        return T;
+        @compileError("Only automatic DSL types are supported. Use zync_cli.Args() to create your argument struct.");
     }
 }
 
@@ -125,43 +125,43 @@ test "library compiles" {
     _ = Parser;
 }
 
-test "simplified API works" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"name|n=Test": []const u8 = "",
-    };
+test "automatic DSL API works" {
+    const TestArgs = Args(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        option("name", []const u8, .{ .short = 'n', .default = "Test", .help = "Set name" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--verbose", "--name", "Alice"};
     
-    // Test new simplified API
+    // Test automatic DSL API
     const result = try parse(TestArgs, arena.allocator(), test_args);
     
-    try testing.expect(result.@"verbose|v" == true);
-    try testing.expectEqualStrings(result.@"name|n=Test", "Alice");
+    try testing.expect(result.verbose == true);
+    try testing.expectEqualStrings(result.name, "Alice");
 }
 
-test "Parser type works" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"count|c=5": u32 = 0,
-    };
+test "Parser type works with automatic DSL" {
+    const TestArgs = Args(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        option("count", u32, .{ .short = 'c', .default = 5, .help = "Set count" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--verbose", "--count", "10"};
     
-    // Test Parser type
-    const result = try Parser(TestArgs).parse(arena.allocator(), test_args);
+    // Test Parser type with automatic DSL
+    const result = try parse(TestArgs, arena.allocator(), test_args);
     
-    try testing.expect(result.@"verbose|v" == true);
-    try testing.expect(result.@"count|c=5" == 10);
+    try testing.expect(result.verbose == true);
+    try testing.expect(result.count == 10);
     
-    // Test help generation (backwards compatibility)
-    const help_text = Parser(TestArgs).helpBasic();
+    // Test help generation 
+    const help_text = try help(TestArgs, arena.allocator());
     try testing.expect(help_text.len > 0);
 }
 

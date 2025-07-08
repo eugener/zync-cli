@@ -345,10 +345,9 @@ fn setFieldValue(comptime T: type, result: *T, field: meta.FieldMetadata, value:
     const struct_fields = std.meta.fields(T);
     
     inline for (struct_fields) |struct_field| {
-        // For positional fields, match exact encoded name
+        // For positional fields, match field name directly (automatic DSL uses clean names)
         if (field.positional) {
-            if (std.mem.startsWith(u8, struct_field.name, "#") and 
-                std.mem.endsWith(u8, struct_field.name, field.name)) {
+            if (std.mem.eql(u8, struct_field.name, field.name)) {
                 const field_ptr = &@field(result, struct_field.name);
                 
                 switch (struct_field.type) {
@@ -622,295 +621,351 @@ fn createMissingRequiredError(field_name: []const u8, allocator: std.mem.Allocat
 }
 
 test "parse simple arguments" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"name|n=Test": []const u8 = "",
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "Test", .help = "Set name" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--verbose", "--name", "Alice"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expect(result.@"verbose|v" == true);
-    try std.testing.expectEqualStrings(result.@"name|n=Test", "Alice");
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expectEqualStrings(result.name, "Alice");
 }
 
 test "parse with short flags" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"count|c=5": u32 = 0,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.option("count", u32, .{ .short = 'c', .default = 5, .help = "Set count" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"-v", "-c", "10"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expect(result.@"verbose|v" == true);
-    try std.testing.expect(result.@"count|c=5" == 10);
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expect(result.count == 10);
 }
 
 test "parse positional arguments" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"#input": []const u8 = "",
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.positional("input", []const u8, .{ .default = "", .help = "Input file" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--verbose", "input.txt"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expect(result.@"verbose|v" == true);
-    try std.testing.expectEqualStrings(result.@"#input", "input.txt");
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expectEqualStrings(result.input, "input.txt");
+}
+
+test "parse multiple positional arguments" {
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.positional("input", []const u8, .{ .help = "Input file" }),
+        cli.positional("output", []const u8, .{ .help = "Output file" }),
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = &.{"input.txt", "output.txt", "--verbose"};
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectEqualStrings(result.input, "input.txt");
+    try std.testing.expectEqualStrings(result.output, "output.txt");
+    try std.testing.expect(result.verbose == true);
+}
+
+test "positional arguments with defaults" {
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.positional("input", []const u8, .{ .help = "Input file" }),
+        cli.positional("output", []const u8, .{ .default = "default.out", .required = false, .help = "Output file" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    // Only provide the first positional argument
+    const test_args = &.{"input.txt"};
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectEqualStrings(result.input, "input.txt");
+    try std.testing.expectEqualStrings(result.output, "default.out");
 }
 
 test "parse with integer values" {
-    const TestArgs = struct {
-        @"count|c=5": u32 = 0,
-        @"port|p": u16 = 8080,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("count", u32, .{ .short = 'c', .default = 5, .help = "Set count" }),
+        cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Set port" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--count", "42", "--port", "3000"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expect(result.@"count|c=5" == 42);
-    try std.testing.expect(result.@"port|p" == 3000);
+    try std.testing.expect(result.count == 42);
+    try std.testing.expect(result.port == 3000);
 }
 
 test "required field validation - missing required field" {
-    const TestArgs = struct {
-        @"config|c!": []const u8 = "",
-        @"verbose|v": bool = false,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.required("config", []const u8, .{ .short = 'c', .help = "Config file" }),
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--verbose"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.MissingRequiredArgument, result);
 }
 
 test "required field validation - required field provided" {
-    const TestArgs = struct {
-        @"config|c!": []const u8 = "",
-        @"verbose|v": bool = false,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.required("config", []const u8, .{ .short = 'c', .help = "Config file" }),
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--verbose", "--config", "test.conf"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expect(result.@"verbose|v" == true);
-    try std.testing.expectEqualStrings(result.@"config|c!", "test.conf");
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expectEqualStrings(result.config, "test.conf");
 }
 
 test "default value handling - string default" {
-    const TestArgs = struct {
-        @"name|n=Default": []const u8 = "",
-        @"verbose|v": bool = false,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("name", []const u8, .{ .short = 'n', .default = "Default", .help = "Set name" }),
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--verbose"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expect(result.@"verbose|v" == true);
-    try std.testing.expectEqualStrings(result.@"name|n=Default", "Default");
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expectEqualStrings(result.name, "Default");
 }
 
 test "default value handling - integer default" {
-    const TestArgs = struct {
-        @"count|c=42": u32 = 0,
-        @"verbose|v": bool = false,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("count", u32, .{ .short = 'c', .default = 42, .help = "Set count" }),
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--verbose"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expect(result.@"verbose|v" == true);
-    try std.testing.expect(result.@"count|c=42" == 42);
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expect(result.count == 42);
 }
 
 test "default value handling - override default" {
-    const TestArgs = struct {
-        @"count|c=42": u32 = 0,
-        @"name|n=Default": []const u8 = "",
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("count", u32, .{ .short = 'c', .default = 42, .help = "Set count" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "Default", .help = "Set name" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--count", "100", "--name", "Custom"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expect(result.@"count|c=42" == 100);
-    try std.testing.expectEqualStrings(result.@"name|n=Default", "Custom");
+    try std.testing.expect(result.count == 100);
+    try std.testing.expectEqualStrings(result.name, "Custom");
 }
 
 test "flag with embedded value" {
-    const TestArgs = struct {
-        @"name|n": []const u8 = "",
-        @"count|c": u32 = 0,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("name", []const u8, .{ .short = 'n', .default = "", .help = "Set name" }),
+        cli.option("count", u32, .{ .short = 'c', .default = 0, .help = "Set count" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--name=Alice", "--count=42"};
-    const result = try parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
-    try std.testing.expectEqualStrings(result.@"name|n", "Alice");
-    try std.testing.expect(result.@"count|c" == 42);
+    try std.testing.expectEqualStrings(result.name, "Alice");
+    try std.testing.expect(result.count == 42);
 }
 
 test "unknown flag error" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--unknown"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.UnknownFlag, result);
 }
 
 test "missing value for flag" {
-    const TestArgs = struct {
-        @"name|n": []const u8 = "",
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("name", []const u8, .{ .short = 'n', .default = "", .help = "Set name" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--name"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.MissingValue, result);
 }
 
 test "automatic help handling - long flag" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"name|n": []const u8 = "",
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "", .help = "Set name" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--help"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.HelpRequested, result);
 }
 
 test "automatic help handling - short flag" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"config|c!": []const u8 = "",
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.required("config", []const u8, .{ .short = 'c', .help = "Config file" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"-h"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.HelpRequested, result);
 }
 
 test "automatic help handling - custom help field" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"help|h": bool = false,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.flag("help", .{ .short = 'h', .help = "Show help" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     const test_args = &.{"--help"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.HelpRequested, result);
 }
 
 test "detailed error messages - unknown flag" {
-    const TestArgs = struct {
-        @"verbose|v": bool = false,
-        @"name|n": []const u8 = "",
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "", .help = "Set name" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     // This should produce a detailed error message about unknown flag
     const test_args = &.{"--unknown"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.UnknownFlag, result);
 }
 
 test "detailed error messages - missing value" {
-    const TestArgs = struct {
-        @"name|n": []const u8 = "",
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("name", []const u8, .{ .short = 'n', .default = "", .help = "Set name" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     // This should produce a detailed error message about missing value
     const test_args = &.{"--name"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.MissingValue, result);
 }
 
 test "detailed error messages - invalid value" {
-    const TestArgs = struct {
-        @"count|c": u32 = 0,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("count", u32, .{ .short = 'c', .default = 0, .help = "Set count" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     // This should produce a detailed error message about invalid integer value
     const test_args = &.{"--count", "not-a-number"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.InvalidValue, result);
 }
 
 test "detailed error messages - missing required argument" {
-    const TestArgs = struct {
-        @"config|c!": []const u8 = "",
-        @"verbose|v": bool = false,
-    };
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.required("config", []const u8, .{ .short = 'c', .help = "Config file" }),
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     // This should produce a detailed error message about missing required argument
     const test_args = &.{"--verbose"};
-    const result = parseFrom(TestArgs, arena.allocator(), test_args);
+    const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
     
     try std.testing.expectError(ParseError.MissingRequiredArgument, result);
 }
