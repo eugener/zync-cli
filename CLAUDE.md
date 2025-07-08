@@ -74,9 +74,10 @@ const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (
 - **Arena-based memory management** for leak-free operation
 - **Type-specific parsers** with compile-time optimization
 
-#### Field Encoding DSL
-The library supports a comprehensive DSL for encoding CLI argument metadata in struct field names:
+#### Dual DSL Support
+The library supports both legacy field encoding DSL and modern function-based DSL:
 
+**Legacy Field Encoding DSL (Still Supported):**
 ```zig
 const Args = struct {
     @"verbose|v": bool = false,           // --verbose, -v (boolean flag)
@@ -84,18 +85,53 @@ const Args = struct {
     @"output|o=/tmp/out": []const u8,     // --output, -o (with default)
     @"#input": []const u8,                // positional argument
     @"count|n=1": u32,                    // --count, -n (integer with default)
-    @"help|h": bool = false,              // --help, -h (help flag)
 };
 ```
 
-**Supported Encodings:**
-- `|x` - Short flag (-x)
-- `!` - Required field
-- `=value` - Default value
-- `#` - Positional argument
-- `*` - Multiple values (planned)
-- `+` - Counting flag (planned)
-- `$VAR` - Environment variable (planned)
+**Modern Function-Based DSL (Recommended):**
+```zig
+const zync_cli = @import("zync-cli");
+
+const Args = struct {
+    verbose: bool = zync_cli.flag(.{ .short = 'v', .help = "Enable verbose output" }),
+    config: []const u8 = zync_cli.required([]const u8, zync_cli.RequiredConfig([]const u8){ 
+        .short = 'c', 
+        .help = "Configuration file path" 
+    }),
+    output: []const u8 = zync_cli.option(zync_cli.OptionConfig([]const u8){ 
+        .short = 'o', 
+        .default = "/tmp/out", 
+        .help = "Output directory" 
+    }),
+    input: []const u8 = zync_cli.positional([]const u8, zync_cli.PositionalConfig([]const u8){ 
+        .help = "Input file" 
+    }),
+    count: u32 = zync_cli.option(zync_cli.Option(u32){ 
+        .short = 'n', 
+        .default = 1, 
+        .help = "Number of iterations" 
+    }),
+    
+    // Explicit metadata for function-based DSL
+    pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
+        .{ .name = "verbose", .short = 'v', .help = "Enable verbose output" },
+        .{ .name = "config", .short = 'c', .required = true, .help = "Configuration file path" },
+        .{ .name = "output", .short = 'o', .default = "/tmp/out", .help = "Output directory" },
+        .{ .name = "input", .positional = true, .help = "Input file" },
+        .{ .name = "count", .short = 'n', .default = "1", .help = "Number of iterations" },
+    };
+};
+```
+
+**Function-Based DSL Features:**
+- `flag()` - Boolean flags with optional short form
+- `option()` - Optional arguments with defaults  
+- `required()` - Required arguments
+- `positional()` - Positional arguments
+- Rich help text and descriptions
+- IDE-friendly syntax with auto-completion
+- Type safety at compile time
+- Clean, readable field definitions
 
 #### Implemented Modules
 
@@ -105,6 +141,7 @@ const Args = struct {
    - `Parser(T)` - Type-specific parser with compile-time optimization
    - `help()` - Generate help text
    - `validate()` - Compile-time validation
+   - Function-based DSL exports (`flag`, `option`, `required`, `positional`)
 
 2. **`src/types.zig`** - Core type definitions
    - `ParseError` - Comprehensive error types
@@ -123,23 +160,31 @@ const Args = struct {
 
 4. **`src/meta.zig`** - Compile-time metadata extraction
    - Field encoding DSL parser
+   - Function-based DSL metadata support
    - Struct field analysis
    - Type validation (simplified)
    - Metadata extraction for runtime use
 
-5. **`src/help.zig`** - Help text generation
-   - Static help generation (basic implementation)
-   - Usage string generation (simplified)
-   - Field documentation support (planned)
+5. **`src/dsl.zig`** - Function-based DSL implementation
+   - `flag()` - Boolean flag definitions
+   - `option()` - Optional arguments with defaults
+   - `required()` - Required argument definitions
+   - `positional()` - Positional argument definitions
+   - Configuration types with compile-time markers
+   - Metadata generation helpers
 
-6. **`src/colors.zig`** - Terminal color support
+6. **`src/help.zig`** - Help text generation
+   - Dynamic help generation with metadata
+   - Unified `formatHelp()` function with color support
+   - Automatic help option support
+
+7. **`src/colors.zig`** - Terminal color support
    - `printError()` - Colorized error message output
-   - `printHelp()` - Colorized help text generation
-   - `supportsColor()` - Smart color detection
+   - `supportsColor()` - Smart color detection with caching
    - Environment variable support (`NO_COLOR`, `FORCE_COLOR`)
    - Cross-platform ANSI color codes
 
-7. **`src/testing.zig`** - Testing utilities
+8. **`src/testing.zig`** - Testing utilities
    - `expectParse()` - Test successful parsing
    - `expectParseError()` - Test error conditions
    - `expectDiagnostics()` - Test warning/info messages

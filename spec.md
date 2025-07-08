@@ -14,13 +14,21 @@
 // Level 1: Simple struct (minimal ceremony)
 const Args = struct { verbose: bool = false };
 
-// Level 2: Struct + metadata (most common)
+// Level 2: Function-based DSL (modern, recommended)
 const Args = struct {
-    verbose: bool = false,
-    pub const cli = .{ .fields = .{ .verbose = .{ .short = 'v' } } };
+    verbose: bool = zync_cli.flag(.{ .short = 'v', .help = "Enable verbose output" }),
+    config: []const u8 = zync_cli.required([]const u8, zync_cli.RequiredConfig([]const u8){ 
+        .short = 'c', 
+        .help = "Configuration file path" 
+    }),
+    
+    pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
+        .{ .name = "verbose", .short = 'v', .help = "Enable verbose output" },
+        .{ .name = "config", .short = 'c', .required = true, .help = "Configuration file path" },
+    };
 };
 
-// Level 3: Encoded field names (maximum ergonomics)
+// Level 3: Legacy encoded field names (still supported)
 const Args = struct {
     @"verbose|v": bool = false,
     @"config|c!": []const u8,
@@ -34,9 +42,109 @@ const Command = union(enum) {
 };
 ```
 
-## 2. Field Name Encoding DSL
+## 2. Function-Based DSL (Modern Approach)
 
-### 2.1 Encoding Syntax
+### 2.1 Core Functions
+
+The function-based DSL provides clean, IDE-friendly syntax for defining CLI arguments:
+
+```zig
+const zync_cli = @import("zync-cli");
+
+const Args = struct {
+    // Boolean flags
+    verbose: bool = zync_cli.flag(.{ 
+        .short = 'v', 
+        .help = "Enable verbose output" 
+    }),
+    
+    // Optional arguments with defaults
+    name: []const u8 = zync_cli.option(zync_cli.OptionConfig([]const u8){ 
+        .short = 'n', 
+        .default = "World", 
+        .help = "Name to greet" 
+    }),
+    
+    // Required arguments
+    config: []const u8 = zync_cli.required([]const u8, zync_cli.RequiredConfig([]const u8){ 
+        .short = 'c', 
+        .help = "Configuration file path" 
+    }),
+    
+    // Positional arguments
+    input: []const u8 = zync_cli.positional([]const u8, zync_cli.PositionalConfig([]const u8){ 
+        .help = "Input file path" 
+    }),
+    
+    // Explicit metadata declaration
+    pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
+        .{ .name = "verbose", .short = 'v', .help = "Enable verbose output" },
+        .{ .name = "name", .short = 'n', .default = "World", .help = "Name to greet" },
+        .{ .name = "config", .short = 'c', .required = true, .help = "Configuration file path" },
+        .{ .name = "input", .positional = true, .help = "Input file path" },
+    };
+};
+```
+
+### 2.2 Configuration Types
+
+#### FlagConfig
+```zig
+pub const FlagConfig = struct {
+    short: ?u8 = null,           // Short flag character
+    help: ?[]const u8 = null,    // Help text
+    default: ?bool = null,       // Default value (usually false)
+    hidden: bool = false,        // Hide from help output
+};
+```
+
+#### OptionConfig(T)
+```zig
+pub fn OptionConfig(comptime T: type) type {
+    return struct {
+        short: ?u8 = null,
+        help: ?[]const u8 = null,
+        default: T,                    // Required default value
+        hidden: bool = false,
+        env_var: ?[]const u8 = null,   // Environment variable (future)
+    };
+}
+```
+
+#### RequiredConfig(T)
+```zig
+pub fn RequiredConfig(comptime T: type) type {
+    return struct {
+        short: ?u8 = null,
+        help: ?[]const u8 = null,
+        hidden: bool = false,
+        env_var: ?[]const u8 = null,
+    };
+}
+```
+
+#### PositionalConfig(T)
+```zig
+pub fn PositionalConfig(comptime T: type) type {
+    return struct {
+        help: ?[]const u8 = null,
+        default: ?T = null,
+        required: bool = true,
+    };
+}
+```
+
+### 2.3 Benefits
+
+- **Clean field names**: `args.verbose` instead of `args.@"verbose|v"`
+- **IDE support**: Full auto-completion and syntax highlighting
+- **Type safety**: Configuration structs are type-checked at compile time
+- **Rich metadata**: Comprehensive help text and descriptions
+- **Future-proof**: Extensible for advanced features
+
+## 3. Field Name Encoding DSL (Legacy)
+
+### 3.1 Encoding Syntax
 ```zig
 const Args = struct {
     // Basic flag

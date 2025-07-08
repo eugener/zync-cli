@@ -35,6 +35,13 @@ pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const [
     };
 }
 
+/// Parse arguments with separate types for target and metadata source
+pub fn parseFromWithMeta(comptime TargetType: type, comptime MetaType: type, allocator: std.mem.Allocator, args: []const []const u8) !TargetType {
+    return parseFromWithDetailsAndMeta(TargetType, MetaType, allocator, args) catch |err| {
+        return err;
+    };
+}
+
 /// Parse arguments with detailed error information
 pub fn parseFromWithDetails(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !T {
     // Validate the structure at compile time
@@ -78,6 +85,53 @@ pub fn parseFromWithDetails(comptime T: type, allocator: std.mem.Allocator, args
     
     // Check for missing required arguments
     try validateRequired(T, field_info, result, provided_fields.items, allocator);
+    
+    return result;
+}
+
+/// Parse arguments with detailed error information using separate metadata type
+pub fn parseFromWithDetailsAndMeta(comptime TargetType: type, comptime MetaType: type, allocator: std.mem.Allocator, args: []const []const u8) !TargetType {
+    // Validate the metadata source structure at compile time
+    comptime meta.validate(MetaType);
+    
+    // Check for help flags FIRST, before any validation
+    try checkForHelpRequest(MetaType, args);
+    
+    // Initialize the result structure with defaults
+    var result = TargetType{};
+    
+    // Track which fields were provided
+    var provided_fields = std.ArrayList([]const u8).init(allocator);
+    defer provided_fields.deinit();
+    
+    // Extract field metadata from the metadata type
+    const field_info = comptime meta.extractFields(MetaType);
+    
+    // Use all provided arguments (don't skip any)
+    const cli_args = args;
+    
+    // Parse arguments
+    var i: usize = 0;
+    while (i < cli_args.len) {
+        const arg = cli_args[i];
+        
+        if (std.mem.startsWith(u8, arg, "--")) {
+            // Long flag (--flag or --flag=value)
+            i = try parseLongFlag(TargetType, field_info, &result, cli_args, i, &provided_fields, allocator);
+        } else if (std.mem.startsWith(u8, arg, "-") and arg.len > 1) {
+            // Short flag (-f or -fvalue)
+            i = try parseShortFlag(TargetType, field_info, &result, cli_args, i, &provided_fields, allocator);
+        } else {
+            // Positional argument
+            i = try parsePositional(TargetType, field_info, &result, cli_args, i, &provided_fields, allocator);
+        }
+    }
+    
+    // Apply default values for fields that weren't provided
+    try applyDefaults(TargetType, field_info, &result, provided_fields.items, allocator);
+    
+    // Check for missing required arguments
+    try validateRequired(TargetType, field_info, result, provided_fields.items, allocator);
     
     return result;
 }

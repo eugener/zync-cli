@@ -28,19 +28,47 @@ const testing = std.testing;
 const parser = @import("parser.zig");
 const meta = @import("meta.zig");
 const help_gen = @import("help.zig");
+const cli = @import("cli.zig");
 
 // Re-export commonly used types for convenience
 pub const ParseError = parser.ParseError;
 pub const FieldMetadata = meta.FieldMetadata;
 
+// Primary DSL API - Zero duplication, automatic metadata extraction
+pub const Args = cli.Args;
+pub const flag = cli.flag;
+pub const option = cli.option;
+pub const required = cli.required;
+pub const positional = cli.positional;
+
+// Export configuration types
+pub const FlagConfig = cli.FlagConfig;
+pub const OptionConfig = cli.OptionConfig;
+pub const RequiredConfig = cli.RequiredConfig;
+pub const PositionalConfig = cli.PositionalConfig;
+
 /// Parse command-line arguments into the specified type
 /// Uses arena allocation for simple memory management
-pub fn parse(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !T {
-    return Parser(T).parse(allocator, args);
+pub fn parse(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !ParseReturnType(T) {
+    // Handle automatic DSL types that have ArgsType
+    if (@hasDecl(T, "ArgsType")) {
+        return parser.parseFromWithMeta(T.ArgsType, T, allocator, args);
+    } else {
+        return parser.parseFrom(T, allocator, args);
+    }
+}
+
+/// Helper to determine the return type for parsing
+fn ParseReturnType(comptime T: type) type {
+    if (@hasDecl(T, "ArgsType")) {
+        return T.ArgsType;
+    } else {
+        return T;
+    }
 }
 
 /// Parse from process arguments
-pub fn parseProcess(comptime T: type, allocator: std.mem.Allocator) !T {
+pub fn parseProcess(comptime T: type, allocator: std.mem.Allocator) !ParseReturnType(T) {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
     // Skip the program name (first argument)
@@ -135,4 +163,23 @@ test "Parser type works" {
     // Test help generation (backwards compatibility)
     const help_text = Parser(TestArgs).helpBasic();
     try testing.expect(help_text.len > 0);
+}
+
+test "new automatic DSL integration" {
+    // Test the new automatic DSL works end-to-end
+    const TestArgs = Args(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Set name" }),
+        option("count", u32, .{ .short = 'c', .default = 5, .help = "Set count" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = &.{"-v", "--name", "Alice", "--count", "10"};
+    const result = try parse(TestArgs, arena.allocator(), test_args);
+    
+    try testing.expect(result.verbose == true);
+    try testing.expectEqualStrings(result.name, "Alice");
+    try testing.expect(result.count == 10);
 }

@@ -134,13 +134,21 @@ pub fn extractFields(comptime T: type) []const FieldMetadata {
             const field_count = struct_info.fields.len;
             if (field_count == 0) return &[_]FieldMetadata{};
             
+            // Check if struct has explicit DSL metadata first
+            if (extractDslMetadata(T)) |dsl_metadata| {
+                return dsl_metadata;
+            }
+            
             // Build the field array at compile time using a comptime block
             const result = comptime blk: {
                 var fields: [field_count]FieldMetadata = undefined;
                 for (struct_info.fields, 0..) |field, i| {
                     const metadata = if (hasFieldEncoding(field.name)) blk2: {
-                        // Field has encoded name
+                        // Field has encoded name (legacy DSL)
                         break :blk2 parseFieldEncoding(field.name);
+                    } else if (extractFunctionBasedMetadata(field)) |function_metadata| blk2: {
+                        // Field uses function-based DSL
+                        break :blk2 function_metadata;
                     } else blk2: {
                         // Simple field name
                         break :blk2 FieldMetadata{
@@ -323,6 +331,29 @@ fn parseAliases(aliases_str: []const u8) []const []const u8 {
     return &.{};
 }
 
+/// Extract metadata from function-based DSL field definitions
+fn extractFunctionBasedMetadata(comptime field: std.builtin.Type.StructField) ?FieldMetadata {
+    // Function-based DSL metadata extraction is complex in Zig because we need to 
+    // analyze compile-time function call expressions in default values.
+    // 
+    // For now, we use a convention where function-based DSL structs declare
+    // metadata explicitly using a `dsl_metadata` declaration.
+    // 
+    // This will be enhanced in the future to automatically detect DSL function calls.
+    
+    _ = field;
+    return null;
+}
+
+/// Extract metadata for structs using function-based DSL with explicit metadata
+fn extractDslMetadata(comptime T: type) ?[]const FieldMetadata {
+    // Check if the struct has DSL metadata declaration
+    if (@hasDecl(T, "dsl_metadata")) {
+        return T.dsl_metadata;
+    }
+    return null;
+}
+
 /// Validate CLI metadata structure
 fn validateCliMetadata(comptime cli_meta: anytype) void {
     const meta_type = @TypeOf(cli_meta);
@@ -346,6 +377,17 @@ test "validate basic struct" {
     };
     
     // Should not cause compile error
+    validate(TestArgs);
+}
+
+test "validate automatic DSL struct" {
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.option("count", u32, .{ .short = 'c', .default = 0, .help = "Set count" }),
+    });
+    
+    // Should not cause compile error - validate the wrapper type that has metadata
     validate(TestArgs);
 }
 
@@ -396,4 +438,23 @@ test "extractFields basic" {
     try std.testing.expectEqualStrings(fields[0].name, "verbose");
     try std.testing.expectEqualStrings(fields[1].name, "count");
     try std.testing.expect(fields[1].short.? == 'c');
+}
+
+test "extractFields with automatic DSL" {
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Set name" }),
+    });
+    
+    // For automatic DSL, we need to extract from the wrapper type that has dsl_metadata
+    const fields = extractFields(TestArgs);
+    
+    try std.testing.expect(fields.len == 2);
+    try std.testing.expectEqualStrings(fields[0].name, "verbose");
+    try std.testing.expect(fields[0].short.? == 'v');
+    try std.testing.expectEqualStrings(fields[0].help.?, "Enable verbose output");
+    try std.testing.expectEqualStrings(fields[1].name, "name");
+    try std.testing.expect(fields[1].short.? == 'n');
+    try std.testing.expectEqualStrings(fields[1].default.?, "test");
 }
