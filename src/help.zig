@@ -162,6 +162,13 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
             const desc = extractFieldDescription(field);
             try help_text.appendSlice(desc);
             
+            // Environment variable indicator
+            if (field.env_var) |env_var| {
+                try colors.addText(&help_text, .dim, " [env: ");
+                try colors.addText(&help_text, .cyan, env_var);
+                try colors.addText(&help_text, .dim, "]");
+            }
+            
             // Default value or required indicator
             if (field.default) |default| {
                 try colors.addText(&help_text, .dim, " (default: ");
@@ -375,4 +382,22 @@ test "generateUsage basic" {
     const usage = generateUsage(TestArgs);
     
     try std.testing.expect(std.mem.indexOf(u8, usage, "Usage:") != null);
+}
+
+test "environment variable in help text" {
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "TEST_VERBOSE" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Name to use", .env_var = "TEST_NAME" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const help_text = try formatHelp(TestArgs, arena.allocator(), "test-program");
+    defer arena.allocator().free(help_text);
+    
+    // Check that environment variables appear in help
+    try std.testing.expect(std.mem.indexOf(u8, help_text, "[env: TEST_VERBOSE]") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help_text, "[env: TEST_NAME]") != null);
 }

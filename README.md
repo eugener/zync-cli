@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-103%2F103%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-107%2F107%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -15,7 +15,7 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Environment Variable Support** - Seamless integration with standard priority chain
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 103 comprehensive tests covering all functionality
+- **Battle Tested** - 107 comprehensive tests covering all functionality
 - **Automatic Help** - Built-in help generation and flag processing
 - **Colorized Output** - Beautiful terminal colors with smart detection and fallback
 
@@ -95,9 +95,9 @@ CLI Application
 Usage: myapp [OPTIONS]
 
 Options:
-  -v, --verbose           Enable verbose output
-  -n, --name [value]      Name to greet (default: World)
-  -c, --count [value]     Number of times to greet (default: 1)
+  -v, --verbose           Enable verbose output [env: APP_VERBOSE]
+  -n, --name [value]      Name to greet [env: APP_NAME] (default: World)
+  -c, --count [value]     Number of times to greet [env: APP_COUNT] (default: 1)
   -h, --help              Show this help message
 ```
 
@@ -142,6 +142,20 @@ Environment variables work with all supported types and are automatically conver
 - **Floats**: `"3.14"` → `3.14`
 - **Strings**: Used directly
 - **Required fields**: Environment variables satisfy required field validation
+
+### Automatic Help Documentation
+
+Environment variables are automatically documented in help text:
+
+```bash
+$ ./myapp --help
+Options:
+  -v, --verbose           Enable verbose output [env: APP_VERBOSE]
+  -p, --port [value]      Port to listen on [env: APP_PORT] (default: 8080)
+  -c, --config <value>    Config file path [env: APP_CONFIG] (required)
+```
+
+The `[env: VAR_NAME]` indicator shows users which environment variables are available for each option.
 
 ### Environment Variable Naming
 
@@ -432,7 +446,7 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **103 total tests** across all modules
+- **107 total tests** across all modules
 - **Function-based DSL** - Zero-duplication metadata extraction
 - **Argument parsing** for all supported types
 - **Environment variable support** - Priority chain and type conversion

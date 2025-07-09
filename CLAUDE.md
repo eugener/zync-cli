@@ -44,7 +44,8 @@ APP_VERBOSE=true ./myapp  # Uses env var
 - **Parser Integration** - Environment variables processed between CLI parsing and defaults
 - **Type Conversion** - Automatic string-to-type conversion using existing `setFieldValue` logic
 - **Validation Integration** - Environment variables properly update `provided_fields` for required validation
-- **103 Tests** - Comprehensive test coverage including priority chains and type conversion
+- **Help Documentation** - Environment variables automatically appear in help text with `[env: VAR_NAME]` indicators
+- **107 Tests** - Comprehensive test coverage including priority chains, type conversion, and help documentation
 
 ### ✨ Colorized Output Enhancement (v0.3.0)
 
@@ -383,7 +384,7 @@ zync-cli/
 ## 📊 Project Metrics
 
 - **Lines of Code**: ~1,500 (excluding tests)
-- **Test Coverage**: 103 tests, 100% passing
+- **Test Coverage**: 107 tests, 100% passing
 - **Modules**: 7 core modules + demo app
 - **Supported Types**: bool, int, float, []const u8, optional types
 - **Environment Variables**: Full integration with priority chain support
