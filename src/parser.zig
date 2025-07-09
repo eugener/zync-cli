@@ -37,14 +37,6 @@ pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const [
 
 /// Parse arguments with separate types for target and metadata source
 pub fn parseFromWithMeta(comptime TargetType: type, comptime MetaType: type, allocator: std.mem.Allocator, args: []const []const u8) !TargetType {
-    return parseFromWithDetailsAndMeta(TargetType, MetaType, allocator, args) catch |err| {
-        return err;
-    };
-}
-
-
-/// Parse arguments with detailed error information using separate metadata type
-pub fn parseFromWithDetailsAndMeta(comptime TargetType: type, comptime MetaType: type, allocator: std.mem.Allocator, args: []const []const u8) !TargetType {
     // Validate the metadata source structure at compile time
     comptime meta.validate(MetaType);
     
@@ -460,11 +452,6 @@ fn isHelpField(field_name: []const u8) bool {
     }
 }
 
-/// Helper function to handle help request and exit
-fn handleHelpRequest(comptime T: type) !void {
-    help.printHelp(T);
-    return ParseError.HelpRequested;
-}
 
 /// Helper function to handle help request with configuration
 fn handleHelpRequestWithConfig(comptime MetaType: type, allocator: std.mem.Allocator) !void {

@@ -6,20 +6,10 @@
 const std = @import("std");
 pub const tty = std.io.tty;
 
-/// Get TTY configuration for stderr
-fn getStderrConfig() tty.Config {
-    return tty.detectConfig(std.io.getStdErr());
-}
-
-/// Get TTY configuration for stdout
-fn getStdoutConfig() tty.Config {
-    return tty.detectConfig(std.io.getStdOut());
-}
-
 /// Check if colors are supported (for backward compatibility)
 pub fn supportsColor() bool {
     // Use stdlib's TTY detection which is more robust
-    return switch (getStdoutConfig()) {
+    return switch (tty.detectConfig(std.io.getStdOut())) {
         .no_color => false,
         .escape_codes, .windows_api => true,
     };
@@ -122,8 +112,8 @@ pub fn printError(message: []const u8, context: ?[]const u8, suggestion: ?[]cons
 test "color support detection" {
     // Test stdlib TTY detection
     _ = supportsColor();
-    _ = getStderrConfig();
-    _ = getStdoutConfig();
+    _ = tty.detectConfig(std.io.getStdErr());
+    _ = tty.detectConfig(std.io.getStdOut());
 }
 
 test "ANSI sequence generation" {

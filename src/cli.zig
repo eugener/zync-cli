@@ -6,9 +6,6 @@
 const std = @import("std");
 const FieldMetadata = @import("meta.zig").FieldMetadata;
 
-/// Global compile-time storage for field metadata
-/// This allows DSL functions to register their metadata automatically
-var global_metadata_registry: []const FieldMetadata = &.{};
 
 
 /// Configuration for boolean flag arguments
@@ -328,14 +325,6 @@ fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConf
     };
 }
 
-/// Check if a type is a FieldDef type
-fn isFieldDefinition(comptime T: type) bool {
-    const type_info = @typeInfo(T);
-    if (type_info != .@"struct") return false;
-    
-    // Check if the type has the required methods
-    return @hasDecl(T, "getValue") and @hasDecl(T, "getMeta");
-}
 
 test "automatic DSL" {
     // Automatic DSL: NO explicit metadata declarations needed!

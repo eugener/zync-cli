@@ -142,19 +142,7 @@ pub const FieldMetadata = struct {
     help: ?[]const u8 = null,
 };
 
-/// Shell types for completion generation
-pub const Shell = enum {
-    bash,
-    zsh,
-    fish,
-    powershell,
-};
 
-/// Validation result
-pub const ValidationResult = union(enum) {
-    valid,
-    invalid: []const u8, // Error message
-};
 
 test "ParseResult basic functionality" {
     const TestArgs = struct {

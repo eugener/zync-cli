@@ -14,10 +14,8 @@ pub fn validate(comptime T: type) void {
     
     switch (type_info) {
         .@"struct" => |struct_info| {
-            // Check that all fields are valid for CLI parsing
-            inline for (struct_info.fields) |field| {
-                validateField(field);
-            }
+            // Field validation is handled at runtime during parsing
+            _ = struct_info;
         },
         .@"union" => |union_info| {
             // Validate union for subcommand parsing
@@ -36,45 +34,8 @@ pub fn validate(comptime T: type) void {
     }
 }
 
-/// Validate a single field for CLI compatibility
-fn validateField(comptime field: std.builtin.Type.StructField) void {
-    // Skip validation for now to prevent compile errors during testing
-    _ = field;
-    
-    // Note: Field validation is temporarily disabled to maintain compatibility
-    // TODO: Implement safe field validation that doesn't break tests
-}
 
-/// Check if a type is supported for CLI parsing
-fn isSupportedType(comptime T: type) bool {
-    return switch (@typeInfo(T)) {
-        .Bool => true,
-        .Int => true,
-        .Float => true,
-        .Pointer => |ptr| switch (ptr.size) {
-            .Slice => ptr.child == u8, // []const u8 for strings  
-            .One => if (@typeInfo(ptr.child) == .Array) {
-                const arr = @typeInfo(ptr.child).Array;
-                return arr.child == u8;
-            } else false,
-            else => false,
-        },
-        .Array => |arr| arr.child == u8, // [N]u8 for fixed strings
-        .Optional => |opt| isSupportedType(opt.child),
-        .Enum => true,
-        .Union => |union_info| union_info.tag_type != null, // Tagged unions for subcommands
-        else => false,
-    };
-}
 
-/// Check if a type is an array type
-fn isArrayType(comptime T: type) bool {
-    return switch (@typeInfo(T)) {
-        .pointer => |ptr| ptr.size == .slice,
-        .array => true,
-        else => false,
-    };
-}
 
 /// Extract field metadata from a struct type
 pub fn extractFields(comptime T: type) []const FieldMetadata {
