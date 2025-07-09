@@ -12,7 +12,7 @@ const colors = @import("colors.zig");
 pub fn extractProgramName(allocator: std.mem.Allocator) ![]const u8 {
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-    
+
     if (args.len > 0) {
         // Extract just the filename from the full path
         const full_path = args[0];
@@ -20,7 +20,7 @@ pub fn extractProgramName(allocator: std.mem.Allocator) ![]const u8 {
         while (i > 0) {
             i -= 1;
             if (full_path[i] == '/' or full_path[i] == '\\') {
-                const program_name = full_path[i + 1..];
+                const program_name = full_path[i + 1 ..];
                 // Make a copy to ensure it's null-terminated and safe
                 return try allocator.dupe(u8, program_name);
             }
@@ -30,7 +30,6 @@ pub fn extractProgramName(allocator: std.mem.Allocator) ![]const u8 {
     }
     return "program";
 }
-
 
 /// Generate formatted help text for a type
 pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: ?[]const u8) ![]const u8 {
@@ -43,31 +42,34 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
 pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, program_name: ?[]const u8, config: @import("cli.zig").ArgsConfig) ![]const u8 {
     // Extract field metadata at compile time
     const field_info = comptime meta.extractFields(T);
-    
+
     var help_text = std.ArrayList(u8).init(allocator);
     defer help_text.deinit();
-    
+
     // Get the actual program name for both title and usage
     const actual_program_name = program_name orelse "program";
-    
+
     // Add blank line before title
     try colors.addText(&help_text, .dim, "\n");
-    
-    // Title (custom title or program name)
-    const title = config.title orelse actual_program_name;
-    try colors.addText(&help_text, .bright_cyan, title);
-    try colors.addText(&help_text, .dim, "\n");
-    
-    // Description (if provided)
-    if (config.description) |description| {
-        try colors.addText(&help_text, .dim, description);
-        try colors.addText(&help_text, .dim, "\n");
+
+    // Title (custom title or reminder to customize)
+    if (config.title) |custom_title| {
+        try colors.addText(&help_text, .bright_cyan, custom_title);
+    } else {
+        try colors.addText(&help_text, .bright_cyan, actual_program_name);
+        try colors.addText(&help_text, .dim, " - TODO: Add custom title using .title in Args config");
     }
-    
+    try colors.addText(&help_text, .dim, "\n");
+
+    // Description (custom description or reminder to customize)
+    const description = config.description orelse "TODO: Add description using .description in Args config";
+    try colors.addText(&help_text, .dim, description);
+    try colors.addText(&help_text, .dim, "\n");
+
     try colors.addText(&help_text, .dim, "\n");
     try colors.addText(&help_text, .dim, "Usage: ");
     try colors.addText(&help_text, .bright_white, actual_program_name);
-    
+
     // Add options if any non-positional fields exist
     comptime var has_options = false;
     comptime {
@@ -81,7 +83,7 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
     if (has_options) {
         try colors.addText(&help_text, .dim, " [OPTIONS]");
     }
-    
+
     // Add positional args to usage if any
     comptime var has_positional = false;
     inline for (field_info) |field| {
@@ -93,11 +95,11 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
         }
     }
     try colors.addText(&help_text, .dim, "\n\n");
-    
+
     // Options section
     try colors.addText(&help_text, .bold, "Options:");
     try colors.addText(&help_text, .dim, "\n");
-    
+
     // Calculate the maximum width for proper alignment
     comptime var max_option_width: usize = 0;
     comptime {
@@ -105,24 +107,24 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
             if (!field.positional and !field.hidden) {
                 const field_type = extractFieldType(T, field.name);
                 const is_bool = field_type == bool;
-                
+
                 var width: usize = 2; // "  " prefix
-                
+
                 // Short flag width
                 if (field.short != null) {
                     width += 4; // "-x, "
                 } else {
                     width += 4; // "    "
                 }
-                
+
                 // Long flag width
                 width += 2 + field.name.len; // "--fieldname"
-                
+
                 // Value indicator width
                 if (!is_bool) {
                     width += 8; // " [value]" or " <value>"
                 }
-                
+
                 if (width > max_option_width) {
                     max_option_width = width;
                 }
@@ -131,18 +133,18 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
         // Add some padding between columns
         max_option_width += 4;
     }
-    
+
     // List options with proper alignment
     inline for (field_info) |field| {
         if (!field.positional and !field.hidden) {
             const field_type = extractFieldType(T, field.name);
             const is_bool = field_type == bool;
-            
+
             var option_width: usize = 0;
-            
+
             try colors.addText(&help_text, .dim, "  ");
             option_width += 2;
-            
+
             // Short flag
             if (field.short) |short| {
                 try colors.addText(&help_text, .green, "-");
@@ -153,12 +155,12 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
                 try colors.addText(&help_text, .dim, "    ");
                 option_width += 4;
             }
-            
-            // Long flag  
+
+            // Long flag
             try colors.addText(&help_text, .green, "--");
             try colors.addText(&help_text, .green, field.name);
             option_width += 2 + field.name.len;
-            
+
             // Value type indicator
             if (!is_bool) {
                 try colors.addText(&help_text, .dim, " ");
@@ -169,25 +171,25 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
                 }
                 option_width += 8;
             }
-            
+
             // Add padding to align descriptions
             const padding_needed = max_option_width - option_width;
             var i: usize = 0;
             while (i < padding_needed) : (i += 1) {
                 try help_text.append(' ');
             }
-            
+
             // Description
             const desc = extractFieldDescription(field);
             try help_text.appendSlice(desc);
-            
+
             // Environment variable indicator
             if (field.env_var) |env_var| {
                 try colors.addText(&help_text, .dim, " [env: ");
                 try colors.addText(&help_text, .cyan, env_var);
                 try colors.addText(&help_text, .dim, "]");
             }
-            
+
             // Default value or required indicator
             if (field.default) |default| {
                 try colors.addText(&help_text, .dim, " (default: ");
@@ -198,11 +200,11 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
                 try colors.addText(&help_text, .red, "required");
                 try colors.addText(&help_text, .dim, ")");
             }
-            
+
             try colors.addText(&help_text, .dim, "\n");
         }
     }
-    
+
     // Always add help option automatically (unless user defined their own)
     const has_user_help = comptime blk: {
         for (field_info) |field| {
@@ -212,26 +214,27 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
         }
         break :blk false;
     };
-    
+
     if (!has_user_help) {
         try colors.addText(&help_text, .dim, "  ");
-        try colors.addText(&help_text, .green, "-h, --help");
-        
+        try colors.addText(&help_text, .reset, "-h, ");
+        try colors.addText(&help_text, .green, "--help");
+
         // Add proper padding for help option
         const help_option_width = 2 + 4 + 6; // "  " + "-h, " + "--help"
-        const help_padding_needed = max_option_width - help_option_width;
+        const help_padding_needed = if (max_option_width > help_option_width) max_option_width - help_option_width else 0;
         var help_i: usize = 0;
         while (help_i < help_padding_needed) : (help_i += 1) {
             try help_text.append(' ');
         }
-        
+
         try colors.addText(&help_text, .dim, "Show this help message\n");
     }
-    
+
     // Show positional arguments if any
     comptime var has_printed_pos_header = false;
     comptime var max_arg_width: usize = 0;
-    
+
     // Calculate max argument name width
     comptime {
         for (field_info) |field| {
@@ -245,7 +248,7 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
         // Add padding between columns
         max_arg_width += 4;
     }
-    
+
     inline for (field_info) |field| {
         if (field.positional) {
             if (!has_printed_pos_header) {
@@ -254,45 +257,44 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
                 try colors.addText(&help_text, .dim, "\n");
                 has_printed_pos_header = true;
             }
-            
+
             var arg_width: usize = 0;
             try colors.addText(&help_text, .dim, "  ");
             arg_width += 2;
-            
+
             try colors.addText(&help_text, .green, field.name);
             arg_width += field.name.len;
-            
+
             // Add padding to align descriptions
             const arg_padding_needed = max_arg_width - arg_width;
             var arg_i: usize = 0;
             while (arg_i < arg_padding_needed) : (arg_i += 1) {
                 try help_text.append(' ');
             }
-            
+
             try colors.addText(&help_text, .dim, extractFieldDescription(field));
             try colors.addText(&help_text, .dim, "\n");
         }
     }
-    
+
     return help_text.toOwnedSlice();
 }
 
 /// Generate help text for a type (backwards compatibility)
-
 /// Print help text with colors for a specific type
 pub fn printHelp(comptime T: type) void {
     // In test mode, do nothing to avoid hanging
     if (@import("builtin").is_test) {
         return;
     }
-    
+
     // Use a temporary arena allocator for help text generation
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    
+
     // Get the actual program name from process args
     const program_name = extractProgramName(arena.allocator()) catch "program";
-    
+
     // Generate help text with color support and actual program name
     const help_text = formatHelp(T, arena.allocator(), program_name) catch {
         // Fallback if allocation fails
@@ -300,18 +302,17 @@ pub fn printHelp(comptime T: type) void {
         stdout.print("Error: Unable to generate help text\n", .{}) catch {};
         return;
     };
-    
+
     // Print the generated help text
     const stdout = std.io.getStdOut().writer();
     stdout.print("{s}", .{help_text}) catch {};
 }
 
-
 /// Get field type from struct at compile time
 fn extractFieldType(comptime T: type, comptime field_name: []const u8) type {
     // Handle automatic DSL types that have ArgsType
     const TargetType = if (@hasDecl(T, "ArgsType")) T.ArgsType else T;
-    
+
     const struct_fields = std.meta.fields(TargetType);
     inline for (struct_fields) |struct_field| {
         // Exact field name matching
@@ -328,12 +329,12 @@ pub fn extractFieldDescription(field: meta.FieldMetadata) []const u8 {
     if (field.help) |help_text| {
         return help_text;
     }
-    
+
     // Only provide description for help option
     if (std.mem.eql(u8, field.name, "help")) {
         return "Show this help message";
     }
-    
+
     // For all other fields, user must provide description
     return "";
 }
@@ -342,10 +343,10 @@ pub fn extractFieldDescription(field: meta.FieldMetadata) []const u8 {
 pub fn generateUsage(comptime T: type) []const u8 {
     // Extract field metadata at compile time
     const field_info = comptime meta.extractFields(T);
-    
+
     // Build usage string dynamically
     comptime var usage: []const u8 = "Usage: program";
-    
+
     // Add options if any non-positional fields exist
     comptime var has_options = false;
     comptime {
@@ -359,7 +360,7 @@ pub fn generateUsage(comptime T: type) []const u8 {
             usage = usage ++ " [OPTIONS]";
         }
     }
-    
+
     // Add positional arguments
     comptime {
         for (field_info) |field| {
@@ -372,7 +373,7 @@ pub fn generateUsage(comptime T: type) []const u8 {
             }
         }
     }
-    
+
     return usage;
 }
 
@@ -380,14 +381,14 @@ test "generate basic help" {
     const TestArgs = struct {
         verbose: bool = false,
     };
-    
+
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    
+
     // Use formatHelp for testing
     const help_text = try formatHelp(TestArgs, arena.allocator(), "test-program");
     defer arena.allocator().free(help_text);
-    
+
     // Check that it returns the expected basic help string
     try std.testing.expect(std.mem.indexOf(u8, help_text, "Usage:") != null);
 }
@@ -397,9 +398,9 @@ test "generateUsage basic" {
         verbose: bool = false,
         @"#input": []const u8 = "",
     };
-    
+
     const usage = generateUsage(TestArgs);
-    
+
     try std.testing.expect(std.mem.indexOf(u8, usage, "Usage:") != null);
 }
 
@@ -409,18 +410,18 @@ test "environment variable in help text" {
         cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "TEST_VERBOSE" }),
         cli.option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Name to use", .env_var = "TEST_NAME" }),
     });
-    
+
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    
+
     const help_text = try formatHelp(TestArgs, arena.allocator(), "test-program");
     defer arena.allocator().free(help_text);
-    
-    // Check that environment variables appear in help 
+
+    // Check that environment variables appear in help
     // (may contain color codes, so search for the environment variable names)
     try std.testing.expect(std.mem.indexOf(u8, help_text, "TEST_VERBOSE") != null);
     try std.testing.expect(std.mem.indexOf(u8, help_text, "TEST_NAME") != null);
-    
+
     // Also check for the env indicator pattern (even with potential color codes)
     try std.testing.expect(std.mem.indexOf(u8, help_text, "[env:") != null);
 }

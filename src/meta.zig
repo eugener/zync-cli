@@ -117,7 +117,9 @@ pub fn extractFields(comptime T: type) []const FieldMetadata {
 fn extractDslMetadata(comptime T: type) ?[]const FieldMetadata {
     // Check if the struct has DSL metadata declaration
     if (@hasDecl(T, "dsl_metadata")) {
-        return T.dsl_metadata;
+        // T.dsl_metadata is a pointer to an array, convert to slice
+        const metadata_ptr = @field(T, "dsl_metadata");
+        return metadata_ptr[0..];
     }
     return null;
 }

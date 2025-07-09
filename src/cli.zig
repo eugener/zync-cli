@@ -10,6 +10,7 @@ const FieldMetadata = @import("meta.zig").FieldMetadata;
 /// This allows DSL functions to register their metadata automatically
 var global_metadata_registry: []const FieldMetadata = &.{};
 
+
 /// Configuration for boolean flag arguments
 pub const FlagConfig = struct {
     short: ?u8 = null,
@@ -173,12 +174,33 @@ pub const ArgsConfig = struct {
 
 /// Automatic struct generator that creates CLI argument structs
 /// This creates a struct where metadata is automatically extracted from field definitions
-pub fn Args(comptime field_definitions: anytype) type {
-    return ArgsWithConfig(field_definitions, ArgsConfig{});
+/// Usage: Args(.{ field_definitions, config }) or Args(.{ field_definitions })
+pub fn Args(args: anytype) type {
+    const args_info = @typeInfo(@TypeOf(args));
+    if (args_info == .@"struct" and args_info.@"struct".is_tuple) {
+        const fields = args_info.@"struct".fields;
+        if (fields.len == 2) {
+            // Two arguments: field_definitions and config
+            // Convert the anonymous struct to ArgsConfig
+            const config = ArgsConfig{
+                .title = if (@hasField(@TypeOf(args[1]), "title")) args[1].title else null,
+                .description = if (@hasField(@TypeOf(args[1]), "description")) args[1].description else null,
+            };
+            return ArgsWithConfig(args[0], config);
+        } else if (fields.len == 1) {
+            // One argument: field_definitions only
+            return ArgsWithConfig(args[0], ArgsConfig{});
+        } else {
+            @compileError("Args() expects 1 or 2 arguments");
+        }
+    } else {
+        // Direct field definitions array
+        return ArgsWithConfig(args, ArgsConfig{});
+    }
 }
 
-/// Automatic struct generator with configuration
-pub fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConfig) type {
+/// Internal function that implements the Args generation logic
+fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConfig) type {
     const field_count = field_definitions.len;
     
     // Extract metadata from field definitions
@@ -240,6 +262,7 @@ pub fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: Args
         pub fn initFromStruct(s: ArgsType) @This() {
             return @This(){ .args = s };
         }
+        
         
         // Method-style API for ergonomic parsing
         /// Parse command-line arguments from process argv
@@ -417,12 +440,15 @@ test "help handling API" {
 }
 
 test "title and description API" {
-    const TestArgs = ArgsWithConfig(&.{
-        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-        option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
-    }, ArgsConfig{
-        .title = "🚀 Test Application 🚀",
-        .description = "A test application with custom title and description.",
+    const TestArgs = Args(.{
+        &.{
+            flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+            option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+        },
+        .{
+            .title = "🚀 Test Application 🚀",
+            .description = "A test application with custom title and description.",
+        },
     });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);

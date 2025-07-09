@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-151%2F151%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-156%2F156%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -15,7 +15,7 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Environment Variable Support** - Seamless integration with standard priority chain
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 151 comprehensive tests covering all functionality
+- **Battle Tested** - 156 comprehensive tests covering all functionality
 - **Automatic Help** - Built-in help generation with dynamic program name detection and zero boilerplate
 - **Colorized Output** - Beautiful terminal colors with smart detection and fallback
 
@@ -85,7 +85,8 @@ $ APP_NAME=Bob ./myapp --name Alice
 Hello, Alice!
 
 $ ./myapp --help
-myapp
+myapp - TODO: Add custom title using .title in Args config
+TODO: Add description using .description in Args config
 
 Usage: myapp [OPTIONS]
 
@@ -264,6 +265,63 @@ const Args = cli.Args(&.{
 - **Hidden flags** - Support for flags that work but don't appear in help text
 - **Automatic metadata** - Help text and parsing automatically generated
 - **Clean syntax** - Minimal, readable DSL with full IDE support
+
+## Custom Title and Description
+
+Zync-CLI encourages customization by showing helpful TODO reminders when default title/description are used:
+
+### Default Behavior (Encourages Customization)
+
+Without custom configuration:
+```zig
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+});
+```
+
+```bash
+$ ./myapp --help
+myapp - TODO: Add custom title using .title in Args config
+TODO: Add description using .description in Args config
+
+Usage: myapp [OPTIONS]
+...
+```
+
+### Custom Configuration
+
+Add custom title and description to your Args configuration:
+
+```zig
+const Args = cli.Args(.{
+    &.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+    },
+    .{
+        .title = "MyApp - A powerful CLI tool",
+        .description = "Process files with advanced options and environment variable support.",
+    },
+});
+```
+
+```bash
+$ ./myapp --help
+MyApp - A powerful CLI tool
+Process files with advanced options and environment variable support.
+
+Usage: myapp [OPTIONS]
+...
+```
+
+### Features
+
+- **Encourages Customization** - TODO messages guide users to add custom titles and descriptions
+- **Professional Output** - Custom titles and descriptions create polished help text
+- **Banner Support** - Supports ASCII art banners and multi-line titles
+- **Consistent Styling** - Maintains colorized output with custom content
+- **Zero Boilerplate** - Simple configuration structure with sensible defaults
 
 
 
@@ -463,7 +521,7 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **151 total tests** across all modules
+- **156 total tests** across all modules
 - **Method-style API** - Ergonomic `Args.parse()` and `Args.parseFrom()` methods
 - **Function-based DSL** - Zero-duplication metadata extraction
 - **Argument parsing** for all supported types

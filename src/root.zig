@@ -37,7 +37,6 @@ pub const FieldMetadata = meta.FieldMetadata;
 
 // Primary DSL API - Zero duplication, automatic metadata extraction
 pub const Args = cli.Args;
-pub const ArgsWithConfig = cli.ArgsWithConfig;
 pub const ArgsConfig = cli.ArgsConfig;
 pub const flag = cli.flag;
 pub const option = cli.option;
