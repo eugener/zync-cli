@@ -16,6 +16,7 @@ pub const FlagConfig = struct {
     help: ?[]const u8 = null,
     default: ?bool = null,
     hidden: bool = false,
+    env_var: ?[]const u8 = null,
 };
 
 /// Configuration for optional arguments with defaults
@@ -76,6 +77,7 @@ pub fn flag(comptime field_name: []const u8, comptime config: FlagConfig) FieldD
         .short = config.short,
         .help = config.help,
         .hidden = config.hidden,
+        .env_var = config.env_var,
     };
     
     return FieldDef(bool){

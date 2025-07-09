@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-94%2F94%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-103%2F103%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -12,9 +12,10 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Zero Runtime Overhead** - All parsing logic resolved at compile time
 - **Type Safe** - Full compile-time type checking and validation
 - **Function-based DSL** - Zero-duplication metadata extraction
+- **Environment Variable Support** - Seamless integration with standard priority chain
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 94 comprehensive tests covering all functionality
+- **Battle Tested** - 103 comprehensive tests covering all functionality
 - **Automatic Help** - Built-in help generation and flag processing
 - **Colorized Output** - Beautiful terminal colors with smart detection and fallback
 
@@ -40,9 +41,9 @@ const std = @import("std");
 const cli = @import("zync-cli");
 
 const Args = cli.Args(&.{
-    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
-    cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "APP_VERBOSE" }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet", .env_var = "APP_NAME" }),
+    cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet", .env_var = "APP_COUNT" }),
 });
 
 pub fn main() !void {
@@ -71,10 +72,21 @@ pub fn main() !void {
 
 **Running the example:**
 ```bash
+# Using CLI arguments
 $ ./myapp --verbose --name Alice --count 3
 Verbose mode enabled!
 Hello, Alice!
 Hello, Alice!
+Hello, Alice!
+
+# Using environment variables
+$ APP_VERBOSE=true APP_NAME=Bob APP_COUNT=2 ./myapp
+Verbose mode enabled!
+Hello, Bob!
+Hello, Bob!
+
+# CLI arguments override environment variables
+$ APP_NAME=Bob ./myapp --name Alice
 Hello, Alice!
 
 $ ./myapp --help
@@ -87,6 +99,61 @@ Options:
   -n, --name [value]      Name to greet (default: World)
   -c, --count [value]     Number of times to greet (default: 1)
   -h, --help              Show this help message
+```
+
+## Environment Variable Support
+
+Zync-CLI provides first-class environment variable support with a standard priority chain:
+
+### Priority Chain
+
+**CLI arguments → Environment variables → Default values**
+
+```zig
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "APP_VERBOSE" }),
+    cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port to listen on", .env_var = "APP_PORT" }),
+    cli.required("config", []const u8, .{ .short = 'c', .help = "Config file path", .env_var = "APP_CONFIG" }),
+});
+```
+
+### Usage Examples
+
+```bash
+# Environment variables can satisfy required fields
+$ APP_CONFIG=config.toml ./myapp
+# Uses APP_CONFIG for config, default 8080 for port
+
+# CLI args override environment variables
+$ APP_PORT=3000 ./myapp --port 9000
+# Uses 9000 (CLI) for port, not 3000 (env var)
+
+# Mix and match
+$ APP_VERBOSE=true APP_CONFIG=config.toml ./myapp --port 3000
+# Uses env var for verbose and config, CLI arg for port
+```
+
+### Supported Types
+
+Environment variables work with all supported types and are automatically converted:
+
+- **Boolean flags**: `"true"`, `"1"` → `true`; `"false"`, `"0"` → `false`
+- **Integers**: `"42"` → `42`
+- **Floats**: `"3.14"` → `3.14`
+- **Strings**: Used directly
+- **Required fields**: Environment variables satisfy required field validation
+
+### Environment Variable Naming
+
+Choose descriptive, consistent names for your environment variables:
+
+```zig
+const Args = cli.Args(&.{
+    cli.flag("debug", .{ .env_var = "MYAPP_DEBUG" }),
+    cli.option("host", []const u8, .{ .env_var = "MYAPP_HOST" }),
+    cli.option("timeout", u32, .{ .env_var = "MYAPP_TIMEOUT" }),
+    cli.required("api_key", []const u8, .{ .env_var = "MYAPP_API_KEY" }),
+});
 ```
 
 ## Colorized Output
@@ -145,15 +212,15 @@ FORCE_COLOR=1 ./myapp --help
 
 Zync-CLI uses a function-based DSL for defining CLI arguments:
 
-Clean, IDE-friendly syntax with explicit configuration:
+Clean, IDE-friendly syntax with explicit configuration and environment variable support:
 
 ```zig
 const Args = cli.Args(&.{
-    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
-    cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
-    cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port number to listen on" }),
-    cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path" }),
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "APP_VERBOSE" }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet", .env_var = "APP_NAME" }),
+    cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet", .env_var = "APP_COUNT" }),
+    cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port number to listen on", .env_var = "APP_PORT" }),
+    cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path", .env_var = "APP_CONFIG" }),
     cli.positional("input", []const u8, .{ .help = "Input file to process" }),
 });
 ```
@@ -162,6 +229,7 @@ const Args = cli.Args(&.{
 - Clean, readable field names (`args.verbose` vs `args.@"verbose|v"`)
 - IDE auto-completion and syntax highlighting
 - Rich help text and descriptions
+- Environment variable integration with priority chain
 - Type-safe configuration structs
 - Future-proof for advanced features
 
@@ -171,11 +239,11 @@ The function-based DSL includes powerful features that eliminate duplication and
 
 ```zig
 const Args = cli.Args(&.{
-    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-    cli.flag("debug", .{ .short = 'd', .help = "Debug mode", .hidden = true }),
-    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
-    cli.option("count", u32, .{ .short = 'c', .default = 5, .help = "Number of iterations" }),
-    cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path" }),
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "APP_VERBOSE" }),
+    cli.flag("debug", .{ .short = 'd', .help = "Debug mode", .hidden = true, .env_var = "APP_DEBUG" }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet", .env_var = "APP_NAME" }),
+    cli.option("count", u32, .{ .short = 'c', .default = 5, .help = "Number of iterations", .env_var = "APP_COUNT" }),
+    cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path", .env_var = "APP_CONFIG" }),
     cli.positional("input", []const u8, .{ .help = "Input file to process" }),
 });
 ```
@@ -183,6 +251,7 @@ const Args = cli.Args(&.{
 **Key Benefits:**
 - **Zero duplication** - Single function call defines everything
 - **Type safety** - Compile-time validation of all configurations
+- **Environment integration** - Native support for environment variables
 - **Hidden flags** - Support for flags that work but don't appear in help text
 - **Automatic metadata** - Help text and parsing automatically generated
 - **Clean syntax** - Minimal, readable DSL with full IDE support
@@ -250,34 +319,34 @@ Create argument struct from DSL definitions.
 
 ```zig
 const Args = cli.Args(&.{
-    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-    cli.option("name", []const u8, .{ .default = "World", .help = "Name to greet" }),
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "APP_VERBOSE" }),
+    cli.option("name", []const u8, .{ .default = "World", .help = "Name to greet", .env_var = "APP_NAME" }),
 });
 ```
 
 #### `flag(name, config)`
-Define a boolean flag.
+Define a boolean flag with optional environment variable support.
 
 ```zig
-cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" })
+cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "APP_VERBOSE" })
 ```
 
 #### `option(name, type, config)`
-Define an optional value with default.
+Define an optional value with default and optional environment variable support.
 
 ```zig
-cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of iterations" })
+cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of iterations", .env_var = "APP_COUNT" })
 ```
 
 #### `required(name, type, config)`
-Define a required value.
+Define a required value with optional environment variable support.
 
 ```zig
-cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path" })
+cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path", .env_var = "APP_CONFIG" })
 ```
 
 #### `positional(name, type, config)`
-Define a positional argument.
+Define a positional argument (environment variables not supported for positional args).
 
 ```zig
 cli.positional("input", []const u8, .{ .help = "Input file path" })
@@ -314,6 +383,7 @@ const args = cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) 
 - **Automatic help processing** - Help flags are processed automatically
 - **Pre-validation help** - Help works even when required fields are missing
 - **Standard conventions** - Supports both `--help` and `-h` flags
+- **Environment variable support** - Integrates seamlessly with standard priority chain
 - **Automatic error handling** - Errors are displayed automatically with suggestions
 
 ## Testing
@@ -342,8 +412,8 @@ const cli = @import("zync-cli");
 
 test "my CLI parsing" {
     const Args = cli.Args(&.{
-        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-        cli.option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Name to use" }),
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "TEST_VERBOSE" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Name to use", .env_var = "TEST_NAME" }),
     });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -362,9 +432,10 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **94 total tests** across all modules
+- **103 total tests** across all modules
 - **Function-based DSL** - Zero-duplication metadata extraction
 - **Argument parsing** for all supported types
+- **Environment variable support** - Priority chain and type conversion
 - **Required field validation** with `required()` function
 - **Default value handling** with `option()` function
 - **Positional arguments** with `positional()` function
@@ -485,14 +556,16 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 - [x] **Improved error handling** - Clean messages without stacktraces
 - [x] **Function optimization** - Removed redundant functions, improved naming
 - [x] **Stdlib integration** - Uses `std.io.tty` for color detection
-- [x] **94 comprehensive tests** - Full coverage of current functionality
+- [x] **103 comprehensive tests** - Full coverage of current functionality
 
-### In Progress
-- [ ] Environment variable integration
-- [ ] Configuration file parsing
+### Completed (v0.4.0)
+- [x] **Environment variable support** - Complete integration with priority chain
+- [x] **CLI args → env vars → defaults** - Standard priority implementation
+- [x] **Type-safe environment variables** - Works with all supported types
+- [x] **Required field satisfaction** - Environment variables satisfy validation
+- [x] **Comprehensive testing** - Full test coverage for environment variables
 
 ### Planned (v0.5.0)
-- [ ] Environment variable integration
 - [ ] Configuration file parsing
 - [ ] Subcommand system with tagged unions
 

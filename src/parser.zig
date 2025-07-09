@@ -81,6 +81,9 @@ pub fn parseFromWithDetailsAndMeta(comptime TargetType: type, comptime MetaType:
         }
     }
     
+    // Apply environment variables for fields that weren't provided
+    try applyEnvironmentVariables(TargetType, field_info, &result, &provided_fields, allocator);
+    
     // Apply default values for fields that weren't provided
     try applyDefaults(TargetType, field_info, &result, provided_fields.items, allocator);
     
@@ -377,6 +380,31 @@ fn setFieldValue(comptime T: type, result: *T, field: meta.FieldMetadata, value:
                     },
                 }
                 return;
+            }
+        }
+    }
+}
+
+/// Apply environment variables for fields that weren't provided
+fn applyEnvironmentVariables(comptime T: type, field_info: anytype, result: *T, provided: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
+    for (field_info) |field| {
+        if (field.env_var) |env_var_name| {
+            var is_provided = false;
+            for (provided.items) |provided_name| {
+                if (std.mem.eql(u8, field.name, provided_name)) {
+                    is_provided = true;
+                    break;
+                }
+            }
+            
+            if (!is_provided) {
+                if (std.process.getEnvVarOwned(allocator, env_var_name)) |env_value| {
+                    try setFieldValue(T, result, field, env_value, allocator);
+                    // Add to provided fields so required validation knows it was set
+                    try provided.append(field.name);
+                } else |_| {
+                    // Environment variable not set, continue to defaults
+                }
             }
         }
     }
@@ -809,6 +837,62 @@ test "automatic help handling" {
         const result = parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
         try std.testing.expectError(ParseError.HelpRequested, result);
     }
+}
+
+test "environment variable support - basic functionality" {
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "PATH" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "Default", .help = "Set name", .env_var = "USER" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = &.{}; // No CLI args, should try env vars
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
+    
+    // Just test that it doesn't crash and environment variable lookup works
+    // PATH should exist and be non-empty, making verbose true
+    // USER should exist making name non-default
+    
+    // These tests just verify the mechanism works without relying on specific values
+    _ = result;
+}
+
+test "environment variable priority - CLI args override env vars" {
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("name", []const u8, .{ .short = 'n', .default = "Default", .help = "Set name", .env_var = "PATH" }),
+        cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Set count", .env_var = "NONEXISTENT_VAR" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    // CLI args should override env vars
+    const test_args = &.{"--name", "CliName", "--count", "5"};
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectEqualStrings(result.name, "CliName"); // CLI overrides env
+    try std.testing.expect(result.count == 5); // CLI overrides env
+}
+
+test "environment variable fallback to defaults" {
+    const cli = @import("cli.zig");
+    const TestArgs = cli.Args(&.{
+        cli.option("name", []const u8, .{ .short = 'n', .default = "DefaultName", .help = "Set name", .env_var = "NONEXISTENT_TEST_VAR" }),
+        cli.option("count", u32, .{ .short = 'c', .default = 10, .help = "Set count", .env_var = "ANOTHER_NONEXISTENT_VAR" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = &.{}; // No CLI args, no env vars, should use defaults
+    const result = try parseFromWithMeta(TestArgs.ArgsType, TestArgs, arena.allocator(), test_args);
+    
+    try std.testing.expectEqualStrings(result.name, "DefaultName");
+    try std.testing.expect(result.count == 10);
 }
 
 

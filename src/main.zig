@@ -5,14 +5,14 @@ const std = @import("std");
 /// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
 const cli = @import("zync_cli_lib");
 
-// Clean, automatic DSL - NO explicit metadata declarations needed!
+// Clean, automatic DSL with environment variable support!
 // All metadata automatically extracted from field definitions
 const Args = cli.Args(&.{
-    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
-    cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
-    cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port number to listen on" }),
-    cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path" }),
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "ZYNC_VERBOSE" }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet", .env_var = "ZYNC_NAME" }),
+    cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet", .env_var = "ZYNC_COUNT" }),
+    cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port number to listen on", .env_var = "ZYNC_PORT" }),
+    cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path", .env_var = "ZYNC_CONFIG" }),
     cli.positional("input", []const u8, .{ .default = "stdin", .required = false, .help = "Input file to process" }),
 });
 
@@ -39,6 +39,8 @@ pub fn main() !void {
         std.debug.print("  port: {}\n", .{args.port});
         std.debug.print("  config: {s}\n", .{args.config});
         std.debug.print("  input: {s}\n", .{args.input});
+        std.debug.print("\n🌍 Environment variable support enabled!\n", .{});
+        std.debug.print("💡 Try: ZYNC_NAME=Alice ZYNC_COUNT=3 ./zync_cli\n", .{});
     }
 
     var i: u32 = 0;
