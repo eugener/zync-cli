@@ -6,46 +6,52 @@ Zync-CLI is a comprehensive command-line interface library for Zig that provides
 
 ## Current Project State
 
-### 🌍 Environment Variable Support (Latest - v0.4.0)
+### 🚀 Method-Style API (Latest - v0.5.0)
 
-Zync-CLI now provides comprehensive environment variable integration with standard CLI priority chains:
+Zync-CLI now provides an ergonomic method-style API that eliminates verbose namespaces while maintaining all existing functionality:
 
 #### Core Features
-- **Standard Priority Chain** - CLI arguments → environment variables → default values
-- **Type Safety** - Environment variables work with all supported types (bool, int, float, string)
-- **Required Field Support** - Environment variables can satisfy required field validation
-- **Zero Configuration** - Just add `.env_var = "VAR_NAME"` to any field definition
-- **Memory Safe** - Integrated with arena allocation system
+- **Ergonomic Methods** - `Args.parse()`, `Args.parseFrom()`, `Args.help()`, `Args.validate()`
+- **Method-Style API** - Clean, ergonomic `Args.parse()` interface
+- **Zero Overhead** - Same compile-time optimization as before
+- **Type Safety** - Methods are bound to the specific Args type for better IDE support
+- **Arena Memory Management** - Integrated with arena allocation for automatic cleanup
 
-#### DSL Integration
+#### Method-Style API
 ```zig
 const Args = cli.Args(&.{
     cli.flag("verbose", .{ .short = 'v', .env_var = "APP_VERBOSE" }),
     cli.option("port", u16, .{ .default = 8080, .env_var = "APP_PORT" }),
     cli.required("config", []const u8, .{ .env_var = "APP_CONFIG" }),
 });
+
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    
+    const args = Args.parse(arena.allocator()) catch |err| switch (err) {
+        error.HelpRequested => return,
+        else => std.process.exit(1),
+    };
+    
+    if (args.verbose) {
+        std.debug.print("Verbose mode enabled!\n", .{});
+    }
+}
 ```
 
-#### Usage Examples
-```bash
-# Environment variables satisfy required fields
-APP_CONFIG=config.toml ./myapp
-
-# CLI args override environment variables  
-APP_PORT=3000 ./myapp --port 9000  # Uses 9000, not 3000
-
-# Standard fallback chain
-APP_VERBOSE=true ./myapp  # Uses env var
-./myapp --verbose         # CLI overrides env var
-./myapp                   # Uses default (false)
-```
+#### Benefits
+- **More Intuitive** - `Args.parse()` feels natural and discoverable
+- **IDE-Friendly** - Auto-completion shows available methods
+- **Type-Safe** - Methods are bound to the specific Args type
+- **Less Verbose** - Saves 4 characters per function call
+- **Better UX** - Follows common Zig library patterns
 
 #### Technical Implementation
-- **Parser Integration** - Environment variables processed between CLI parsing and defaults
-- **Type Conversion** - Automatic string-to-type conversion using existing `setFieldValue` logic
-- **Validation Integration** - Environment variables properly update `provided_fields` for required validation
-- **Help Documentation** - Environment variables automatically appear in help text with `[env: VAR_NAME]` indicators
-- **107 Tests** - Comprehensive test coverage including priority chains, type conversion, and help documentation
+- **Generated Methods** - Added to the struct returned by `cli.Args()`
+- **Automatic Help** - Built-in help flag processing with `error.HelpRequested`
+- **Memory Safety** - Arena-based allocation with automatic cleanup
+- **146 Tests** - Comprehensive test coverage including method-style API validation
 
 ### ✨ Colorized Output Enhancement (v0.3.0)
 
@@ -100,10 +106,8 @@ const parsed_args = result.value;
 ```zig
 var arena = std.heap.ArenaAllocator.init(allocator);
 defer arena.deinit();
-const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
-    error.HelpRequested => return, // Help automatically displayed
-    else => return err,
-};
+// Clean and simple - no boilerplate needed!
+const args = try Args.parse(arena.allocator());
 ```
 
 ### ✅ Completed Features
@@ -177,12 +181,9 @@ const Args = struct {
 #### Implemented Modules
 
 1. **`src/root.zig`** - Main library API (simplified, idiomatic)
-   - `parse()` - Parse from custom argument array
-   - `parseProcess()` - Parse command-line arguments
-   - `Parser(T)` - Type-specific parser with compile-time optimization
-   - `help()` - Generate help text
-   - `validate()` - Compile-time validation
-   - Function-based DSL exports (`flag`, `option`, `required`, `positional`)
+   - Method-style API available on Args struct (parse, parseFrom, help, validate)
+   - DSL exports (`Args`, `flag`, `option`, `required`, `positional`)
+   - Configuration types (`FlagConfig`, `OptionConfig`, `RequiredConfig`, `PositionalConfig`)
 
 2. **`src/types.zig`** - Core type definitions
    - `ParseError` - Comprehensive error types

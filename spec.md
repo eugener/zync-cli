@@ -1,4 +1,4 @@
-# Zync-CLI: Complete CLI Library Specification
+# Zync-CLI: Modern CLI Library Specification
 
 ## 1. Core Design Philosophy
 
@@ -6,821 +6,478 @@
 - **Compile-time everything**: All parsing logic resolved at compile time
 - **Zero runtime overhead**: Generated code as efficient as hand-written parsing
 - **Type-safe by design**: Impossible to access non-existent arguments
-- **Memory conscious**: Zero heap allocations for parsing infrastructure
-- **Leverage Zig's unique features**: Comptime, reflection, flexible field names
+- **Memory conscious**: Arena-based allocation for automatic cleanup
+- **Leverage Zig's unique features**: Comptime, reflection, automatic metadata generation
 
-### 1.2 Progressive API Complexity
+### 1.2 Modern Function-Based DSL
+Zync-CLI uses a modern function-based DSL that provides clean, IDE-friendly syntax:
+
 ```zig
-// Level 1: Simple struct (minimal ceremony)
-const Args = struct { verbose: bool = false };
+const cli = @import("zync-cli");
 
-// Level 2: Function-based DSL (modern, recommended)
-const Args = struct {
-    verbose: bool = zync_cli.flag(.{ .short = 'v', .help = "Enable verbose output" }),
-    config: []const u8 = zync_cli.required([]const u8, zync_cli.RequiredConfig([]const u8){ 
-        .short = 'c', 
-        .help = "Configuration file path" 
-    }),
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+    cli.required("config", []const u8, .{ .short = 'c', .help = "Configuration file path" }),
+    cli.positional("input", []const u8, .{ .help = "Input file path" }),
+});
+
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
     
-    pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
-        .{ .name = "verbose", .short = 'v', .help = "Enable verbose output" },
-        .{ .name = "config", .short = 'c', .required = true, .help = "Configuration file path" },
+    const args = Args.parse(arena.allocator()) catch |err| switch (err) {
+        error.HelpRequested => return,
+        else => return err,
     };
-};
-
-// Level 3: Legacy encoded field names (still supported)
-const Args = struct {
-    @"verbose|v": bool = false,
-    @"config|c!": []const u8,
-    @"output|o=./out": []const u8,
-};
-
-// Level 4: Tagged unions (complex subcommands)
-const Command = union(enum) {
-    build: BuildArgs,
-    test: TestArgs,
-};
+    
+    if (args.verbose) {
+        std.debug.print("Verbose mode enabled!\n", .{});
+    }
+    
+    std.debug.print("Hello, {s}!\n", .{args.name});
+}
 ```
 
-## 2. Function-Based DSL (Modern Approach)
+## 2. Function-Based DSL API
 
 ### 2.1 Core Functions
 
-The function-based DSL provides clean, IDE-friendly syntax for defining CLI arguments:
+#### `flag(name, config)`
+Creates a boolean flag argument.
 
 ```zig
-const zync_cli = @import("zync-cli");
+cli.flag("verbose", .{ 
+    .short = 'v', 
+    .help = "Enable verbose output",
+    .env_var = "VERBOSE"  // Optional environment variable
+})
+```
 
-const Args = struct {
-    // Boolean flags
-    verbose: bool = zync_cli.flag(.{ 
-        .short = 'v', 
-        .help = "Enable verbose output" 
-    }),
-    
-    // Optional arguments with defaults
-    name: []const u8 = zync_cli.option(zync_cli.OptionConfig([]const u8){ 
-        .short = 'n', 
-        .default = "World", 
-        .help = "Name to greet" 
-    }),
-    
-    // Required arguments
-    config: []const u8 = zync_cli.required([]const u8, zync_cli.RequiredConfig([]const u8){ 
-        .short = 'c', 
-        .help = "Configuration file path" 
-    }),
-    
-    // Positional arguments
-    input: []const u8 = zync_cli.positional([]const u8, zync_cli.PositionalConfig([]const u8){ 
-        .help = "Input file path" 
-    }),
-    
-    // Explicit metadata declaration
-    pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
-        .{ .name = "verbose", .short = 'v', .help = "Enable verbose output" },
-        .{ .name = "name", .short = 'n', .default = "World", .help = "Name to greet" },
-        .{ .name = "config", .short = 'c', .required = true, .help = "Configuration file path" },
-        .{ .name = "input", .positional = true, .help = "Input file path" },
-    };
-};
+#### `option(name, Type, config)`
+Creates an optional argument with a default value.
+
+```zig
+cli.option("port", u16, .{ 
+    .short = 'p', 
+    .default = 8080,
+    .help = "Server port",
+    .env_var = "PORT"
+})
+```
+
+#### `required(name, Type, config)`
+Creates a required argument that must be provided.
+
+```zig
+cli.required("config", []const u8, .{ 
+    .short = 'c', 
+    .help = "Configuration file path",
+    .env_var = "CONFIG_FILE"
+})
+```
+
+#### `positional(name, Type, config)`
+Creates a positional argument.
+
+```zig
+cli.positional("input", []const u8, .{ 
+    .help = "Input file path",
+    .required = true
+})
 ```
 
 ### 2.2 Configuration Types
 
-#### FlagConfig
+#### `FlagConfig`
+Configuration for boolean flags.
+
 ```zig
 pub const FlagConfig = struct {
-    short: ?u8 = null,           // Short flag character
-    help: ?[]const u8 = null,    // Help text
-    default: ?bool = null,       // Default value (usually false)
-    hidden: bool = false,        // Hide from help output
+    short: ?u8 = null,              // Short flag character (-v)
+    help: ?[]const u8 = null,       // Help text
+    default: bool = false,          // Default value
+    hidden: bool = false,           // Hide from help output
+    env_var: ?[]const u8 = null,    // Environment variable name
 };
 ```
 
-#### OptionConfig(T)
+#### `OptionConfig(T)`
+Configuration for optional arguments.
+
 ```zig
 pub fn OptionConfig(comptime T: type) type {
     return struct {
-        short: ?u8 = null,
-        help: ?[]const u8 = null,
-        default: T,                    // Required default value
-        hidden: bool = false,
-        env_var: ?[]const u8 = null,   // Environment variable (future)
+        short: ?u8 = null,              // Short flag character
+        help: ?[]const u8 = null,       // Help text
+        default: T,                     // Default value (required)
+        hidden: bool = false,           // Hide from help output
+        env_var: ?[]const u8 = null,    // Environment variable name
     };
 }
 ```
 
-#### RequiredConfig(T)
+#### `RequiredConfig(T)`
+Configuration for required arguments.
+
 ```zig
 pub fn RequiredConfig(comptime T: type) type {
     return struct {
-        short: ?u8 = null,
-        help: ?[]const u8 = null,
-        hidden: bool = false,
-        env_var: ?[]const u8 = null,
+        short: ?u8 = null,              // Short flag character
+        help: ?[]const u8 = null,       // Help text
+        hidden: bool = false,           // Hide from help output
+        env_var: ?[]const u8 = null,    // Environment variable name
     };
 }
 ```
 
-#### PositionalConfig(T)
+#### `PositionalConfig(T)`
+Configuration for positional arguments.
+
 ```zig
 pub fn PositionalConfig(comptime T: type) type {
     return struct {
-        help: ?[]const u8 = null,
-        default: ?T = null,
-        required: bool = true,
+        help: ?[]const u8 = null,       // Help text
+        required: bool = false,         // Whether positional is required
+        default: ?T = null,             // Default value if not required
     };
 }
 ```
 
-### 2.3 Benefits
+## 3. Argument Parsing
 
-- **Clean field names**: `args.verbose` instead of `args.@"verbose|v"`
-- **IDE support**: Full auto-completion and syntax highlighting
-- **Type safety**: Configuration structs are type-checked at compile time
-- **Rich metadata**: Comprehensive help text and descriptions
-- **Future-proof**: Extensible for advanced features
+### 3.1 Parsing Priority Chain
 
-## 3. Field Name Encoding DSL (Legacy)
+Arguments are resolved in the following priority order:
 
-### 3.1 Encoding Syntax
-```zig
-const Args = struct {
-    // Basic flag
-    @"verbose": bool = false,
+1. **CLI arguments** (highest priority)
+2. **Environment variables** (if CLI argument not provided)
+3. **Default values** (if neither CLI nor environment variable provided)
+4. **Required validation** (error if required field has no value)
 
-    // Short flag: |char
-    @"verbose|v": bool = false,
+### 3.2 Supported Flag Formats
 
-    // Required: !
-    @"config|c!": []const u8,
-
-    // Default value: =value
-    @"output|o=./out": []const u8,
-    @"port|p=8080": u16,
-
-    // Positional: #name
-    @"#input": []const u8,
-    @"#files": []const []const u8,
-
-    // Multiple values: *
-    @"include|I*": []const []const u8,
-
-    // Counting: +
-    @"verbose|v+": u8,
-
-    // Environment variable: $VAR
-    @"token|t$API_TOKEN": ?[]const u8,
-
-    // Hidden from help: ~
-    @"debug|d~": bool = false,
-
-    // Combinations
-    @"config|c!$CONFIG_FILE": []const u8,        // Required + env var
-    @"output|o=./out$OUTPUT_DIR": []const u8,    // Default + env var
-    @"verbose|v+~": u8,                          // Counting + hidden
-};
+#### Long Flags
+```bash
+--verbose                    # Boolean flag
+--name=Alice                # Embedded value
+--name Alice                # Separate value
 ```
 
-### 2.2 Complex Field Encodings
-```zig
-const Args = struct {
-    // Validation: @validator
-    @"port|p=8080@range(1024,65535)": u16,
-    @"email|e@email": []const u8,
-    @"file|f@exists": []const u8,
-
-    // Choices: %choice1,choice2
-    @"format|f%json,yaml,toml": enum { json, yaml, toml },
-
-    // Aliases: &alias1,alias2
-    @"verbose|v&debug,trace": bool = false,
-
-    // Help text: "description"
-    @"config|c!\"Configuration file path\"": []const u8,
-
-    // Complex combination
-    @"output|o=./out$OUTPUT_DIR\"Output directory\"": []const u8,
-};
+#### Short Flags
+```bash
+-v                          # Boolean flag
+-n Alice                    # Separate value
+-nAlice                     # Embedded value
 ```
 
-## 3. Metadata Configuration
-
-### 3.1 Application Metadata
-```zig
-const Args = struct {
-    // ... fields ...
-
-    pub const cli = .{
-        .name = "myapp",
-        .version = "1.0.0",
-        .description = "My awesome CLI application",
-        .author = "Your Name <you@example.com>",
-        .license = "MIT",
-        .about = "A longer description of what this app does...",
-        .usage = "myapp [OPTIONS] <INPUT> [FILES]...",
-        .examples = &.{
-            .{ .desc = "Basic usage", .cmd = "myapp input.txt" },
-            .{ .desc = "With options", .cmd = "myapp -v --config app.toml input.txt" },
-        },
-    };
-};
+#### Combined Short Flags
+```bash
+-vn Alice                   # Multiple flags: -v -n Alice
 ```
 
-### 3.2 Field-Level Metadata
-```zig
-const Args = struct {
-    verbose: bool = false,
-    config: ?[]const u8 = null,
+### 3.3 Supported Types
 
-    pub const cli = .{
-        .fields = .{
-            .verbose = .{
-                .short = 'v',
-                .help = "Enable verbose output",
-                .long_help = "Enable verbose output with detailed logging information",
-                .env = "VERBOSE",
-                .hidden = false,
-                .count = true,
-            },
-            .config = .{
-                .short = 'c',
-                .help = "Configuration file path",
-                .required = true,
-                .validator = .file_exists,
-                .env = "CONFIG_FILE",
-                .placeholder = "FILE",
-            },
-        },
-    };
-};
+- **Boolean**: `bool`
+- **Integers**: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`
+- **Floats**: `f32`, `f64`
+- **Strings**: `[]const u8`
+- **Optional types**: `?T` for any supported type T
+- **Enums**: Basic enum support with string conversion
+
+### 3.4 Environment Variable Support
+
+All argument types support environment variables:
+
+```zig
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .env_var = "VERBOSE" }),
+    cli.option("port", u16, .{ .default = 8080, .env_var = "PORT" }),
+    cli.required("config", []const u8, .{ .env_var = "CONFIG_FILE" }),
+});
 ```
 
-## 4. Subcommand System
+```bash
+# Environment variables can satisfy required fields
+CONFIG_FILE=config.toml ./myapp
 
-### 4.1 Tagged Union Subcommands
-```zig
-const Command = union(enum) {
-    build: BuildCommand,
-    test: TestCommand,
-    deploy: DeployCommand,
-
-    pub const cli = .{
-        .name = "myapp",
-        .version = "1.0.0",
-        .description = "Multi-command CLI application",
-        .commands = .{
-            .build = .{ .about = "Build the project" },
-            .test = .{ .about = "Run tests", .aliases = &.{"t"} },
-            .deploy = .{ .about = "Deploy to production", .hidden = true },
-        },
-    };
-};
-
-const BuildCommand = struct {
-    @"release|r": bool = false,
-    @"target|t%debug,release": enum { debug, release } = .debug,
-    @"jobs|j=0": u32,
-
-    pub const cli = .{
-        .about = "Build the project with specified options",
-        .examples = &.{
-            .{ .desc = "Debug build", .cmd = "myapp build" },
-            .{ .desc = "Release build", .cmd = "myapp build --release" },
-        },
-    };
-};
+# CLI arguments override environment variables
+PORT=3000 ./myapp --port 9000  # Uses 9000, not 3000
 ```
 
-### 4.2 Nested Subcommands
+## 4. Memory Management
+
+### 4.1 Arena-Based Allocation
+
+Zync-CLI uses arena-based allocation for automatic, leak-free memory management:
+
 ```zig
-const Command = union(enum) {
-    git: GitCommand,
-    docker: DockerCommand,
-};
-
-const GitCommand = union(enum) {
-    clone: struct {
-        @"#url": []const u8,
-        @"#directory": ?[]const u8 = null,
-        @"bare": bool = false,
-    },
-    remote: RemoteCommand,
-
-    pub const cli = .{
-        .about = "Git-like version control commands",
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();  // Automatically frees all allocated memory
+    
+    const args = Args.parse(arena.allocator()) catch |err| switch (err) {
+        error.HelpRequested => return,
+        else => return err,
     };
-};
-
-const RemoteCommand = union(enum) {
-    add: struct {
-        @"#name": []const u8,
-        @"#url": []const u8,
-    },
-    remove: struct {
-        @"#name": []const u8,
-    },
-    list: struct {
-        @"verbose|v": bool = false,
-    },
-};
-```
-
-## 5. Advanced Type System Integration
-
-### 5.1 Custom Type Parsing
-```zig
-const Args = struct {
-    // Custom types with Parse trait
-    endpoint: Endpoint,
-    duration: Duration,
-
-    // Generic containers
-    headers: std.StringHashMap([]const u8),
-
-    // Optional and nullable types
-    maybe_file: ?[]const u8 = null,
-
-    pub const cli = .{
-        .fields = .{
-            .endpoint = .{ .help = "API endpoint URL" },
-            .duration = .{ .help = "Timeout duration (e.g., 30s, 5m, 1h)" },
-            .headers = .{ .help = "HTTP headers (key=value)", .multiple = true },
-        },
-    };
-};
-
-// Custom type implementation
-const Endpoint = struct {
-    scheme: []const u8,
-    host: []const u8,
-    port: u16,
-    path: []const u8,
-
-    pub fn parse(allocator: std.mem.Allocator, input: []const u8) !Endpoint {
-        // Custom parsing logic
-        return parseUrl(input);
-    }
-
-    pub fn deinit(self: *Endpoint, allocator: std.mem.Allocator) void {
-        // Cleanup if needed
-    }
-};
-```
-
-### 5.2 Validation System
-```zig
-const Args = struct {
-    @"port|p=8080": u16,
-    @"email|e": []const u8,
-    @"file|f": []const u8,
-
-    pub const cli = .{
-        .fields = .{
-            .port = .{ .validator = .{ .range = .{ .min = 1024, .max = 65535 } } },
-            .email = .{ .validator = .email },
-            .file = .{ .validator = .{ .all_of = &.{ .file_exists, .readable } } },
-        },
-        .cross_validation = &.{
-            .{ .mutually_exclusive = &.{ "json", "yaml" } },
-            .{ .required_together = &.{ "username", "password" } },
-            .{ .conditional = .{ .if_present = "ssl", .then_required = &.{"cert", "key"} } },
-        },
-    };
-};
-
-// Built-in validators
-const Validators = struct {
-    pub const range = struct {
-        min: anytype,
-        max: anytype,
-    };
-
-    pub const email = struct {};
-    pub const url = struct {};
-    pub const file_exists = struct {};
-    pub const dir_exists = struct {};
-    pub const readable = struct {};
-    pub const writable = struct {};
-    pub const executable = struct {};
-
-    pub const all_of = []const Validator;
-    pub const any_of = []const Validator;
-    pub const not = Validator;
-
-    pub const custom = fn (value: anytype) ValidationResult;
-};
-```
-
-## 6. Configuration Integration
-
-### 6.1 Configuration Sources
-```zig
-const Args = struct {
-    @"config|c$CONFIG_FILE": ?[]const u8 = null,
-    @"verbose|v$VERBOSE": bool = false,
-    @"port|p$PORT": u16 = 8080,
-
-    pub const cli = .{
-        .config = .{
-            .sources = &.{
-                .{ .env_prefix = "MYAPP_" },
-                .{ .config_file = .{
-                    .formats = &.{ .json, .yaml, .toml },
-                    .locations = &.{
-                        "/etc/myapp/config.toml",
-                        "~/.config/myapp/config.toml",
-                        "./config.toml",
-                    },
-                }},
-            },
-            .precedence = .{ .cli, .env, .config_file, .default },
-        },
-    };
-};
-```
-
-### 6.2 Configuration File Format
-```toml
-# config.toml
-[global]
-verbose = true
-port = 9000
-
-[build]
-release = true
-target = "release"
-
-[deploy]
-environment = "staging"
-```
-
-## 7. Help System
-
-### 7.1 Automatic Help Generation
-```zig
-const Args = struct {
-    @"verbose|v+\"Enable verbose output (use multiple times for more verbosity)\"": u8,
-    @"config|c$CONFIG_FILE\"Configuration file path\"": ?[]const u8 = null,
-
-    pub const cli = .{
-        .name = "myapp",
-        .version = "1.0.0",
-        .description = "A comprehensive CLI application",
-        .help = .{
-            .width = 80,
-            .colors = .auto,
-            .template = .default,
-            .sections = &.{
-                .usage,
-                .description,
-                .arguments,
-                .options,
-                .examples,
-                .environment,
-                .footer,
-            },
-        },
-    };
-};
-```
-
-### 7.2 Custom Help Templates
-```zig
-const Args = struct {
-    // ... fields ...
-
-    pub const cli = .{
-        .help = .{
-            .template =
-                \\{name} {version}
-                \\{description}
-                \\
-                \\USAGE:
-                \\    {usage}
-                \\
-                \\ARGUMENTS:
-                \\{arguments}
-                \\
-                \\OPTIONS:
-                \\{options}
-                \\
-                \\EXAMPLES:
-                \\{examples}
-                \\
-                \\For more information, visit: https://example.com
-            ,
-            .colors = .{
-                .header = .bold_blue,
-                .usage = .green,
-                .option = .yellow,
-                .description = .white,
-            },
-        },
-    };
-};
-```
-
-## 8. Shell Integration
-
-### 8.1 Completion Generation
-```zig
-const Args = struct {
-    @"file|f": []const u8,
-    @"format|F%json,yaml,toml": Format,
-
-    pub const cli = .{
-        .completion = .{
-            .shells = &.{ .bash, .zsh, .fish, .powershell },
-            .fields = .{
-                .file = .{ .complete = .files },
-                .format = .{ .complete = .choices },
-            },
-            .dynamic = .{
-                .file = completePaths,
-                .custom = completeCustom,
-            },
-        },
-    };
-};
-
-fn completePaths(allocator: std.mem.Allocator, partial: []const u8) ![]const []const u8 {
-    // Custom completion logic
-    return &.{ "file1.txt", "file2.txt" };
+    // No manual cleanup required!
 }
 ```
 
-### 8.2 Man Page Generation
-```zig
-const Args = struct {
-    // ... fields ...
+### 4.2 Memory Safety Features
 
-    pub const cli = .{
-        .man = .{
-            .section = 1,
-            .author = "Your Name <you@example.com>",
-            .date = "2024-01-01",
-            .see_also = &.{"git(1)", "docker(1)"},
-            .bugs = "Report bugs at https://github.com/user/repo/issues",
-        },
+- **Zero leaks**: All string allocations tied to arena lifetime
+- **Automatic cleanup**: Single `defer arena.deinit()` call
+- **No manual management**: No individual string cleanup required
+- **Testing verified**: All tests pass with leak detection enabled
+
+## 5. Help System
+
+### 5.1 Automatic Help Generation
+
+The library automatically generates help text from argument definitions:
+
+```zig
+// Automatically handles --help and -h flags
+const args = Args.parse(arena.allocator()) catch |err| switch (err) {
+        error.HelpRequested => return,
+        else => return err,
     };
+```
+
+### 5.2 Help Features
+
+- **Automatic help flags**: Handles `--help` and `-h` before validation
+- **Colorized output**: Uses terminal colors for better readability
+- **Smart formatting**: Automatically calculates column alignment
+- **Environment indicators**: Shows `[env: VAR_NAME]` for environment variables
+- **Default values**: Displays `(default: value)` for optional arguments
+- **Required highlighting**: Shows `(required)` for required arguments
+
+### 5.3 Help Output Example
+
+```
+Usage: myapp [OPTIONS] <INPUT>
+
+Options:
+  -v, --verbose     Enable verbose output [env: VERBOSE]
+  -n, --name        Name to greet (default: World) [env: NAME]
+  -c, --config      Configuration file path (required) [env: CONFIG_FILE]
+  -h, --help        Show this help message
+
+Arguments:
+  <INPUT>          Input file path
+```
+
+## 6. Error Handling
+
+### 6.1 Error Types
+
+```zig
+pub const ParseError = error{
+    UnknownFlag,           // Unknown flag provided
+    MissingValue,          // Flag requires value but none provided
+    InvalidValue,          // Value cannot be converted to target type
+    MissingRequired,       // Required argument not provided
+    TooManyPositional,     // More positional args than expected
+    HelpRequested,         // Help flag was provided
 };
 ```
 
-## 9. Error Handling and Diagnostics
+### 6.2 Detailed Error Information
 
-### 9.1 Rich Error Messages
 ```zig
-const ErrorConfig = struct {
-    colors: bool = true,
-    suggestions: bool = true,
-    context: bool = true,
-    max_suggestions: u8 = 3,
-
-    pub const templates = .{
-        .unknown_flag = "Unknown flag '{flag}'. {suggestions}",
-        .missing_value = "Flag '{flag}' requires a value",
-        .invalid_value = "Invalid value '{value}' for '{flag}': {reason}",
-        .missing_required = "Missing required argument: {arg}",
-        .mutually_exclusive = "Cannot use {arg1} and {arg2} together",
-    };
+pub const DetailedParseError = struct {
+    err: ParseError,
+    flag: ?[]const u8 = null,
+    value: ?[]const u8 = null,
+    suggestion: ?[]const u8 = null,
+    context: ?[]const u8 = null,
 };
 ```
 
-### 9.2 Diagnostic Information
+### 6.3 Error Handling Example
+
 ```zig
-const ParseResult = struct {
-    args: Args,
-    diagnostics: []const Diagnostic,
-
-    pub const Diagnostic = struct {
-        level: Level,
-        message: []const u8,
-        suggestion: ?[]const u8 = null,
-        location: ?Location = null,
-
-        pub const Level = enum { error, warning, info, hint };
-        pub const Location = struct { arg_index: usize, char_index: usize };
-    };
+const args = Args.parse(arena.allocator()) catch |err| switch (err) {
+    error.HelpRequested => return,  // Help was shown, exit normally
+    error.UnknownFlag => {
+        std.debug.print("Unknown flag. Use --help for usage.\n", .{});
+        return;
+    },
+    error.MissingRequired => {
+        std.debug.print("Missing required argument. Use --help for usage.\n", .{});
+        return;
+    },
+    else => return err,
 };
 ```
 
-## 10. Testing and Debugging
+## 7. Testing
 
-### 10.1 Test Utilities
+### 7.1 Test Coverage
+
+The library includes comprehensive testing:
+
+- **107 total tests** across all modules
+- **Parser tests**: Argument parsing, type conversion, error handling
+- **Help tests**: Help generation, formatting, color output
+- **Environment tests**: Environment variable integration
+- **Memory tests**: Leak detection and arena allocation
+- **Integration tests**: End-to-end functionality
+
+### 7.2 Running Tests
+
+```bash
+# Run all tests
+zig build test
+
+# Run specific module tests
+zig build test-parser
+zig build test-help
+zig build test-types
+
+# Run with detailed output
+zig build test --summary all
+```
+
+### 7.3 Testing Utilities
+
+The library provides testing utilities for users:
+
 ```zig
 const testing = @import("zync-cli/testing.zig");
 
-test "basic argument parsing" {
-    const Args = struct {
-        @"verbose|v": bool = false,
-        @"#input": []const u8,
-    };
-
-    const result = try testing.parse(Args, &.{ "myapp", "-v", "input.txt" });
-    try testing.expect(result.verbose == true);
-    try testing.expectEqualStrings(result.input, "input.txt");
-}
-
-test "error handling" {
-    const Args = struct {
-        @"required|r!": []const u8,
-    };
-
-    const result = testing.parse(Args, &.{"myapp"});
-    try testing.expectError(error.MissingRequiredArgument, result);
+test "my CLI parsing" {
+    const TestArgs = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v' }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "Test" }),
+    });
+    
+    const allocator = std.testing.allocator;
+    const args = &.{"test", "-v", "--name", "Alice"};
+    
+    const result = try testing.parseArgs(TestArgs, allocator, args);
+    defer testing.cleanup(result);
+    
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expectEqualStrings(result.name, "Alice");
 }
 ```
 
-### 10.2 Debug Features
+## 8. API Reference
+
+### 8.1 Core Functions
+
+#### `parse(Args, allocator, argv)`
+Parse command-line arguments into the specified Args type.
+
 ```zig
+const args = Args.parse(arena.allocator()) catch |err| switch (err) {
+        error.HelpRequested => return,
+        else => return err,
+    };
+```
+
+#### `Args(definitions)`
+Create an Args type from DSL definitions.
+
+```zig
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v' }),
+    cli.option("name", []const u8, .{ .default = "World" }),
+});
+```
+
+### 8.2 DSL Functions
+
+All DSL functions are available through the `cli` namespace:
+
+- `cli.flag(name, config)` - Boolean flags
+- `cli.option(name, Type, config)` - Optional arguments
+- `cli.required(name, Type, config)` - Required arguments
+- `cli.positional(name, Type, config)` - Positional arguments
+
+### 8.3 Generated Struct
+
+The `Args()` function generates a struct with:
+
+- **Typed fields** for each argument
+- **Default values** from DSL definitions
+- **Automatic metadata** for help generation
+- **Environment variable support**
+
+## 9. Advanced Features
+
+### 9.1 Program Name Detection
+
+The library automatically detects the program name from `argv[0]`:
+
+```zig
+// Automatically uses actual program name in help
+Usage: myapp [OPTIONS] <INPUT>
+```
+
+### 9.2 Colorized Output
+
+Terminal colors are automatically detected and used for:
+
+- **Help output**: Colorized flags, options, and descriptions
+- **Error messages**: Red errors with context highlighting
+- **Environment support**: Respects `NO_COLOR` and `FORCE_COLOR`
+
+### 9.3 Edit Distance Suggestions
+
+Unknown flags trigger smart suggestions:
+
+```bash
+$ myapp --verbos
+Error: Unknown flag '--verbos'. Did you mean '--verbose'?
+```
+
+## 10. Current Limitations
+
+### 10.1 Not Yet Implemented
+
+- **Multiple values**: No support for array arguments
+- **Subcommands**: No tagged union support for subcommands
+- **Configuration files**: No TOML/JSON configuration support
+- **Custom validators**: No validation beyond type conversion
+- **Shell completion**: No completion script generation
+
+### 10.2 Future Roadmap
+
+1. **v0.3.0**: Multiple value support and counting flags
+2. **v0.4.0**: Subcommand system with tagged unions
+3. **v0.5.0**: Configuration file integration
+4. **v1.0.0**: Stable API with full feature set
+
+## 11. Migration Guide
+
+### 11.1 From Previous Versions
+
+If upgrading from versions that used field encoding DSL (`@"verbose|v"`), migrate to the function-based DSL:
+
+```zig
+// Old (not implemented)
 const Args = struct {
     @"verbose|v": bool = false,
-
-    pub const cli = .{
-        .debug = .{
-            .trace_parsing = true,
-            .dump_config = true,
-            .show_memory_usage = true,
-        },
-    };
-};
-```
-
-## 11. Performance Optimizations
-
-### 11.1 Compile-Time Optimizations
-```zig
-const Args = struct {
-    // ... fields ...
-
-    pub const cli = .{
-        .optimize = .{
-            // Pre-compute lookup tables
-            .use_lookup_tables = true,
-            // Aggressive inlining
-            .inline_small_functions = true,
-            // Generate specialized parsers
-            .specialize_parsers = true,
-            // Optimize for size vs speed
-            .optimize_for = .speed,
-        },
-    };
-};
-```
-
-### 11.2 Memory Management
-```zig
-const Args = struct {
-    // ... fields ...
-
-    pub const cli = .{
-        .memory = .{
-            // Stack allocation size
-            .stack_size = 4096,
-            // Use arena allocator for temporary allocations
-            .arena_allocator = true,
-            // String interning
-            .intern_strings = true,
-        },
-    };
-};
-```
-
-## 12. Platform-Specific Features
-
-### 12.1 Cross-Platform Support
-```zig
-const Args = struct {
-    @"config|c": ?[]const u8 = null,
-
-    pub const cli = .{
-        .platform = .{
-            .windows = .{
-                .style = .windows, // Support /flag style
-                .registry = true,
-            },
-            .unix = .{
-                .xdg_config = true,
-                .posix_signals = true,
-            },
-            .macos = .{
-                .app_support = true,
-            },
-        },
-    };
-};
-```
-
-## 13. Security Features
-
-### 13.1 Input Sanitization
-```zig
-const Args = struct {
-    @"file|f": []const u8,
-
-    pub const cli = .{
-        .security = .{
-            .sanitize_paths = true,
-            .prevent_traversal = true,
-            .max_arg_length = 4096,
-            .validate_urls = true,
-        },
-    };
-};
-```
-
-## 14. Usage Examples
-
-### 14.1 Simple CLI
-```zig
-const Args = struct {
-    @"verbose|v": bool = false,
-    @"#input": []const u8,
+    @"name|n=World": []const u8,
 };
 
-pub fn main() !void {
-    const args = try cli.parse(Args, std.heap.page_allocator);
-    defer args.deinit();
-
-    if (args.verbose) {
-        std.log.info("Processing file: {s}", .{args.input});
-    }
-}
+// New (current implementation)
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v' }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World" }),
+});
 ```
 
-### 14.2 Complex Multi-Command CLI
-```zig
-const Command = union(enum) {
-    build: struct {
-        @"release|r": bool = false,
-        @"target|t%debug,release": enum { debug, release } = .debug,
-    },
-    test: struct {
-        @"coverage": bool = false,
-        @"filter|f": ?[]const u8 = null,
-    },
+### 11.2 Benefits of Function-Based DSL
 
-    pub const cli = .{
-        .name = "myapp",
-        .version = "1.0.0",
-        .description = "A comprehensive build tool",
-    };
-};
+- **IDE support**: Auto-completion and error checking
+- **Type safety**: Compile-time type validation
+- **Extensibility**: Easy to add new configuration options
+- **Readability**: Clear, explicit argument definitions
+- **Maintainability**: Easier to modify and extend
 
-pub fn main() !void {
-    const cmd = try cli.parse(Command, std.heap.page_allocator);
-    defer cmd.deinit();
-
-    switch (cmd) {
-        .build => |build_args| {
-            std.log.info("Building in {} mode", .{build_args.target});
-        },
-        .test => |test_args| {
-            if (test_args.coverage) {
-                std.log.info("Running tests with coverage");
-            }
-        },
-    }
-}
-```
-
-## 15. API Reference
-
-### 15.1 Core Functions
-```zig
-pub const cli = struct {
-    /// Parse command-line arguments into the specified type
-    pub fn parse(comptime T: type, allocator: std.mem.Allocator) !ParseResult(T);
-
-    /// Parse from custom argument array
-    pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !ParseResult(T);
-
-    /// Generate help text
-    pub fn help(comptime T: type) []const u8;
-
-    /// Generate completion script
-    pub fn completion(comptime T: type, shell: Shell) []const u8;
-
-    /// Generate man page
-    pub fn manPage(comptime T: type) []const u8;
-
-    /// Validate arguments at compile time
-    pub fn validate(comptime T: type) void;
-};
-```
-
-### 15.2 Result Types
-```zig
-pub fn ParseResult(comptime T: type) type {
-    return struct {
-        args: T,
-        diagnostics: []const Diagnostic,
-
-        pub fn deinit(self: *@This()) void;
-    };
-}
-```
-
-This specification provides a complete, feature-rich CLI library that leverages Zig's unique strengths while providing an ergonomic and powerful API for building command-line applications of any complexity.
+This specification reflects the actual implementation of Zync-CLI as of the current version, focusing on the modern function-based DSL approach with comprehensive environment variable support and arena-based memory management.

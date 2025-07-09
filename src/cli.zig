@@ -165,9 +165,20 @@ pub fn positional(comptime field_name: []const u8, comptime T: type, comptime co
     };
 }
 
+/// Configuration for the Args struct
+pub const ArgsConfig = struct {
+    title: ?[]const u8 = null,
+    description: ?[]const u8 = null,
+};
+
 /// Automatic struct generator that creates CLI argument structs
 /// This creates a struct where metadata is automatically extracted from field definitions
 pub fn Args(comptime field_definitions: anytype) type {
+    return ArgsWithConfig(field_definitions, ArgsConfig{});
+}
+
+/// Automatic struct generator with configuration
+pub fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConfig) type {
     const field_count = field_definitions.len;
     
     // Extract metadata from field definitions
@@ -215,6 +226,9 @@ pub fn Args(comptime field_definitions: anytype) type {
         // AUTOMATIC metadata - NO explicit declaration needed!
         pub const dsl_metadata = &metadata_array;
         
+        // Store the configuration
+        pub const args_config = config;
+        
         // Initialize with defaults
         pub fn init() ArgsType {
             return ArgsType{};
@@ -225,6 +239,68 @@ pub fn Args(comptime field_definitions: anytype) type {
         
         pub fn initFromStruct(s: ArgsType) @This() {
             return @This(){ .args = s };
+        }
+        
+        // Method-style API for ergonomic parsing
+        /// Parse command-line arguments from process argv
+        /// Automatically handles help requests and exits gracefully
+        /// NOTE: Use arena allocator for automatic cleanup
+        pub fn parse(allocator: std.mem.Allocator) !ArgsType {
+            const args = try std.process.argsAlloc(allocator);
+            defer std.process.argsFree(allocator, args);
+            // Skip the program name (first argument)
+            const cli_args = if (args.len > 0) args[1..] else args;
+            return parseFrom(allocator, cli_args) catch |err| switch (err) {
+                error.HelpRequested => {
+                    // In test mode, re-throw the error for test control
+                    if (@import("builtin").is_test) {
+                        return err;
+                    }
+                    // In normal mode, help was already displayed, exit gracefully
+                    std.process.exit(0);
+                },
+                else => return err,
+            };
+        }
+        
+        /// Parse command-line arguments from custom argument array
+        /// Automatically handles help requests and exits gracefully
+        /// NOTE: Use arena allocator for automatic cleanup
+        pub fn parseFrom(allocator: std.mem.Allocator, args: []const []const u8) !ArgsType {
+            return parseFromRaw(allocator, args) catch |err| switch (err) {
+                error.HelpRequested => {
+                    // In test mode, re-throw the error for test control
+                    if (@import("builtin").is_test) {
+                        return err;
+                    }
+                    // In normal mode, help was already displayed, exit gracefully
+                    std.process.exit(0);
+                },
+                else => return err,
+            };
+        }
+        
+        /// Parse command-line arguments from custom argument array (raw version)
+        /// Returns HelpRequested error for manual handling - use this only when you need
+        /// full control over help behavior (e.g., custom help handlers)
+        /// NOTE: Use arena allocator for automatic cleanup
+        pub fn parseFromRaw(allocator: std.mem.Allocator, args: []const []const u8) !ArgsType {
+            const parser = @import("parser.zig");
+            return parser.parseFromWithMeta(ArgsType, @This(), allocator, args);
+        }
+        
+        /// Generate formatted help text for this argument structure
+        pub fn help(allocator: std.mem.Allocator) ![]const u8 {
+            const help_gen = @import("help.zig");
+            // Extract the actual program name from process arguments
+            const program_name = help_gen.extractProgramName(allocator) catch "program";
+            return help_gen.formatHelpWithConfig(@This(), allocator, program_name, @This().args_config);
+        }
+        
+        /// Validate arguments structure at compile time
+        pub fn validate() void {
+            const meta = @import("meta.zig");
+            return meta.validate(@This());
         }
     };
 }
@@ -283,4 +359,82 @@ test "automatic DSL" {
     try std.testing.expectEqualStrings(struct_info.fields[1].name, "name");
     try std.testing.expectEqualStrings(struct_info.fields[2].name, "count");
     try std.testing.expectEqualStrings(struct_info.fields[3].name, "config");
+}
+
+test "method-style API" {
+    const TestArgs = Args(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+        required("config", []const u8, .{ .short = 'c', .help = "Configuration file path" }),
+    });
+    
+    // Test that the method-style API exists and has the right type
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    
+    const test_args = &.{"--verbose", "--name", "Alice", "--config", "test.conf"};
+    
+    // Test parseFrom method with arena allocator (automatic cleanup)
+    const result = try TestArgs.parseFrom(allocator, test_args);
+    
+    // Verify the parsing worked
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expectEqualStrings(result.name, "Alice");
+    try std.testing.expectEqualStrings(result.config, "test.conf");
+    
+    // Test help method exists
+    const help_text = try TestArgs.help(allocator);
+    try std.testing.expect(help_text.len > 0);
+    
+    // Test validate method exists (compile-time check)
+    TestArgs.validate();
+}
+
+test "help handling API" {
+    const TestArgs = Args(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    
+    // Test parseFromRaw returns HelpRequested error for manual handling
+    const help_args = &.{"--help"};
+    try std.testing.expectError(error.HelpRequested, TestArgs.parseFromRaw(allocator, help_args));
+    
+    // Test parseFrom returns HelpRequested error in test mode 
+    // (automatic help handling is disabled in tests)
+    try std.testing.expectError(error.HelpRequested, TestArgs.parseFrom(allocator, help_args));
+    
+    // Test normal args work fine
+    const normal_args = &.{"--verbose", "--name", "Alice"};
+    const result = try TestArgs.parseFrom(allocator, normal_args);
+    try std.testing.expect(result.verbose == true);
+    try std.testing.expectEqualStrings(result.name, "Alice");
+}
+
+test "title and description API" {
+    const TestArgs = ArgsWithConfig(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+    }, ArgsConfig{
+        .title = "🚀 Test Application 🚀",
+        .description = "A test application with custom title and description.",
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    
+    // Test that the configuration is stored
+    try std.testing.expectEqualStrings(TestArgs.args_config.title.?, "🚀 Test Application 🚀");
+    try std.testing.expectEqualStrings(TestArgs.args_config.description.?, "A test application with custom title and description.");
+    
+    // Test help generation includes the custom title and description
+    const help_text = try TestArgs.help(allocator);
+    try std.testing.expect(std.mem.indexOf(u8, help_text, "🚀 Test Application 🚀") != null);
+    try std.testing.expect(std.mem.indexOf(u8, help_text, "A test application with custom title and description.") != null);
 }

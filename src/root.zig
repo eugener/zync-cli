@@ -16,7 +16,8 @@
 //!     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
 //!     defer arena.deinit();
 //!     
-//!     const args = try zync_cli.parse(Args, arena.allocator(), std.os.argv);
+//!     // Clean and simple - no boilerplate needed!
+//!     const args = try Args.parse(arena.allocator());
 //!     // Use args.verbose and args.input
 //! }
 //! ```
@@ -36,6 +37,8 @@ pub const FieldMetadata = meta.FieldMetadata;
 
 // Primary DSL API - Zero duplication, automatic metadata extraction
 pub const Args = cli.Args;
+pub const ArgsWithConfig = cli.ArgsWithConfig;
+pub const ArgsConfig = cli.ArgsConfig;
 pub const flag = cli.flag;
 pub const option = cli.option;
 pub const required = cli.required;
@@ -47,45 +50,6 @@ pub const OptionConfig = cli.OptionConfig;
 pub const RequiredConfig = cli.RequiredConfig;
 pub const PositionalConfig = cli.PositionalConfig;
 
-/// Parse command-line arguments into the specified type
-/// Only supports automatic DSL types with ArgsType
-pub fn parse(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !ParsedType(T) {
-    // Only handle automatic DSL types that have ArgsType
-    if (@hasDecl(T, "ArgsType")) {
-        return parser.parseFromWithMeta(T.ArgsType, T, allocator, args);
-    } else {
-        @compileError("Only automatic DSL types are supported. Use zync_cli.Args() to create your argument struct.");
-    }
-}
-
-/// Helper to determine the return type for parsing
-fn ParsedType(comptime T: type) type {
-    if (@hasDecl(T, "ArgsType")) {
-        return T.ArgsType;
-    } else {
-        @compileError("Only automatic DSL types are supported. Use zync_cli.Args() to create your argument struct.");
-    }
-}
-
-/// Parse from process arguments
-pub fn parseProcess(comptime T: type, allocator: std.mem.Allocator) !ParsedType(T) {
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-    // Skip the program name (first argument)
-    const cli_args = if (args.len > 0) args[1..] else args;
-    return parse(T, allocator, cli_args);
-}
-
-/// Generate formatted help text for the specified type
-pub fn help(comptime T: type, allocator: std.mem.Allocator) ![]const u8 {
-    return help_gen.formatHelp(T, allocator, null); // Automatically detects color support
-}
-
-
-/// Validate arguments structure at compile time
-pub fn validate(comptime T: type) void {
-    return meta.validate(T);
-}
 
 
 
@@ -99,15 +63,18 @@ test "automatic DSL integration" {
     var arena = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena.deinit();
     
-    // Test parsing with mixed args
+    // Test parsing with mixed args using method-style API
     const test_args = &.{"-v", "--name", "Alice", "--count", "10"};
-    const result = try parse(TestArgs, arena.allocator(), test_args);
+    const result = try TestArgs.parseFrom(arena.allocator(), test_args);
     
     try testing.expect(result.verbose == true);
     try testing.expectEqualStrings(result.name, "Alice");
     try testing.expect(result.count == 10);
     
-    // Test help generation
-    const help_text = try help(TestArgs, arena.allocator());
+    // Test help generation using method-style API
+    const help_text = try TestArgs.help(arena.allocator());
     try testing.expect(help_text.len > 0);
+    
+    // Verify program name is used in help text (not hardcoded "CLI Application")
+    try testing.expect(std.mem.indexOf(u8, help_text, "CLI Application") == null);
 }

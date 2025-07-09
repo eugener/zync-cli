@@ -49,7 +49,7 @@ pub fn parseFromWithDetailsAndMeta(comptime TargetType: type, comptime MetaType:
     comptime meta.validate(MetaType);
     
     // Check for help flags FIRST, before any validation
-    try checkForHelpRequest(MetaType, args);
+    try checkForHelpRequest(MetaType, args, allocator);
     
     // Initialize the result structure with defaults
     var result = TargetType{};
@@ -466,8 +466,33 @@ fn handleHelpRequest(comptime T: type) !void {
     return ParseError.HelpRequested;
 }
 
+/// Helper function to handle help request with configuration
+fn handleHelpRequestWithConfig(comptime MetaType: type, allocator: std.mem.Allocator) !void {
+    // In test mode, just return the error without printing help
+    if (@import("builtin").is_test) {
+        return ParseError.HelpRequested;
+    }
+    
+    // Check if MetaType has configuration
+    if (@hasDecl(MetaType, "args_config")) {
+        // Use the configuration-aware help generation
+        const program_name = help.extractProgramName(allocator) catch "program";
+        const help_text = help.formatHelpWithConfig(MetaType, allocator, program_name, MetaType.args_config) catch {
+            help.printHelp(MetaType);
+            return ParseError.HelpRequested;
+        };
+        
+        // Print the help text
+        const stdout = std.io.getStdOut().writer();
+        stdout.print("{s}", .{help_text}) catch {};
+    } else {
+        help.printHelp(MetaType);
+    }
+    return ParseError.HelpRequested;
+}
+
 /// Check if help was requested and handle it automatically
-fn checkForHelpRequest(comptime T: type, args: []const []const u8) !void {
+fn checkForHelpRequest(comptime T: type, args: []const []const u8, allocator: std.mem.Allocator) !void {
     // Extract field metadata to find help flags
     const field_info = comptime meta.extractFields(T);
     
@@ -478,13 +503,13 @@ fn checkForHelpRequest(comptime T: type, args: []const []const u8) !void {
             
             // Check if this is a help flag (either common or struct-defined)
             if (isHelpField(flag_name)) {
-                return handleHelpRequest(T);
+                return handleHelpRequestWithConfig(T, allocator);
             }
             
             // Check if any struct field with this name is a help field
             inline for (field_info) |field| {
                 if (std.mem.eql(u8, field.name, flag_name) and isHelpField(field.name)) {
-                    return handleHelpRequest(T);
+                    return handleHelpRequestWithConfig(T, allocator);
                 }
             }
         } else if (std.mem.startsWith(u8, arg, "-") and arg.len == 2) {
@@ -492,14 +517,14 @@ fn checkForHelpRequest(comptime T: type, args: []const []const u8) !void {
             
             // Check common short help flag
             if (flag_char == 'h') {
-                return handleHelpRequest(T);
+                return handleHelpRequestWithConfig(T, allocator);
             }
             
             // Check struct-defined short help flags
             inline for (field_info) |field| {
                 if (field.short) |short| {
                     if (flag_char == short and isHelpField(field.name)) {
-                        return handleHelpRequest(T);
+                        return handleHelpRequestWithConfig(T, allocator);
                     }
                 }
             }

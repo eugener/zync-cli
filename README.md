@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-107%2F107%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-151%2F151%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -11,12 +11,12 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 
 - **Zero Runtime Overhead** - All parsing logic resolved at compile time
 - **Type Safe** - Full compile-time type checking and validation
-- **Function-based DSL** - Zero-duplication metadata extraction
+- **Method-Style API** - Ergonomic `Args.parse()` interface with zero-duplication metadata extraction
 - **Environment Variable Support** - Seamless integration with standard priority chain
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 107 comprehensive tests covering all functionality
-- **Automatic Help** - Built-in help generation and flag processing
+- **Battle Tested** - 151 comprehensive tests covering all functionality
+- **Automatic Help** - Built-in help generation with dynamic program name detection and zero boilerplate
 - **Colorized Output** - Beautiful terminal colors with smart detection and fallback
 
 ## Quick Start
@@ -50,13 +50,8 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     
-    const args = cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
-        error.HelpRequested => {
-            // Help was automatically displayed by the parser
-            return;
-        },
-        else => return err,
-    };
+    // Clean and simple - no boilerplate needed!
+    const args = try Args.parse(arena.allocator());
     
     if (args.verbose) {
         std.debug.print("Verbose mode enabled!\n", .{});
@@ -90,7 +85,7 @@ $ APP_NAME=Bob ./myapp --name Alice
 Hello, Alice!
 
 $ ./myapp --help
-CLI Application
+myapp
 
 Usage: myapp [OPTIONS]
 
@@ -294,36 +289,52 @@ Zync-CLI supports a wide range of Zig types with automatic conversion:
 
 ## API Reference
 
-### Core Functions
+### Method-Style API (Recommended)
 
-#### `parse(T, allocator, args)`
-Parse from custom argument array.
+The modern method-style API provides the most ergonomic way to use Zync-CLI:
+
+#### `Args.parse(allocator)`
+Parse command-line arguments from process argv. Help is handled automatically.
 
 ```zig
-const args = &.{"--verbose", "--name", "Alice"};
-const result = try cli.parse(Args, arena.allocator(), args);
+// Clean and simple - no boilerplate!
+const args = try Args.parse(arena.allocator());
 ```
 
-#### `parseProcess(T, allocator)`
-Parse command-line arguments from process (automatically skips program name).
+#### `Args.parseFrom(allocator, args)`
+Parse from custom argument array. Help is handled automatically.
 
 ```zig
-const result = try cli.parseProcess(Args, arena.allocator());
+const test_args = &.{"--verbose", "--name", "Alice"};
+const args = try Args.parseFrom(arena.allocator(), test_args);
 ```
 
-#### `help(T, allocator)`
-Generate help text for DSL-defined arguments.
+#### `Args.parseFromRaw(allocator, args)`
+Parse from custom argument array with manual help handling. Use this only when you need full control over help behavior.
 
 ```zig
-const help_text = try cli.help(Args, allocator);
+const args = Args.parseFromRaw(arena.allocator(), test_args) catch |err| switch (err) {
+    error.HelpRequested => {
+        // Handle help manually
+        return;
+    },
+    else => return err,
+};
+```
+
+#### `Args.help(allocator)`
+Generate help text for this argument structure.
+
+```zig
+const help_text = try Args.help(arena.allocator());
 std.debug.print("{s}\n", .{help_text});
 ```
 
-#### `validate(T)`
-Compile-time validation of argument definitions.
+#### `Args.validate()`
+Compile-time validation of argument structure.
 
 ```zig
-comptime cli.validate(Args); // Validates at compile time
+comptime Args.validate(); // Validates at compile time
 ```
 
 ### DSL Functions
@@ -335,6 +346,8 @@ Create argument struct from DSL definitions.
 const Args = cli.Args(&.{
     cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output", .env_var = "APP_VERBOSE" }),
     cli.option("name", []const u8, .{ .default = "World", .help = "Name to greet", .env_var = "APP_NAME" }),
+    cli.required("config", []const u8, .{ .short = 'c', .help = "Configuration file path", .env_var = "APP_CONFIG" }),
+    cli.positional("input", []const u8, .{ .help = "Input file path" }),
 });
 ```
 
@@ -371,8 +384,8 @@ cli.positional("input", []const u8, .{ .help = "Input file path" })
 Parsing functions now return the parsed arguments directly:
 
 ```zig
-// Simple and clean
-const args = try cli.parseProcess(Args, arena.allocator());
+// Simple and clean - no boilerplate needed!
+const args = try Args.parse(arena.allocator());
 // No manual cleanup needed - arena handles memory
 ```
 
@@ -381,15 +394,19 @@ const args = try cli.parseProcess(Args, arena.allocator());
 Zync-CLI automatically handles help flags and displays help text before any validation occurs:
 
 ```zig
-const args = cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
+// Help is handled automatically - no boilerplate needed!
+const args = try Args.parse(arena.allocator());
+```
+
+For advanced use cases where you need control over help handling, use `parseFromRaw`:
+
+```zig
+const args = Args.parseFromRaw(arena.allocator(), custom_args) catch |err| switch (err) {
     error.HelpRequested => {
-        // Help was automatically displayed by the parser
+        // Handle help manually if needed
         return;
     },
-    else => {
-        // Error was already printed by the parser, just exit
-        std.process.exit(1);
-    },
+    else => return err,
 };
 ```
 
@@ -433,20 +450,21 @@ test "my CLI parsing" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
-    // Test successful parsing
-    const result = try cli.parse(Args, arena.allocator(), &.{"--verbose", "--name", "Alice"});
+    // Test successful parsing with method-style API
+    const result = try Args.parseFrom(arena.allocator(), &.{"--verbose", "--name", "Alice"});
     try std.testing.expect(result.verbose == true);
     try std.testing.expectEqualStrings(result.name, "Alice");
     
     // Test error conditions
     try std.testing.expectError(error.UnknownFlag, 
-        cli.parse(Args, arena.allocator(), &.{"--invalid"}));
+        Args.parseFrom(arena.allocator(), &.{"--invalid"}));
 }
 ```
 
 ### Current Test Coverage
 
-- **107 total tests** across all modules
+- **151 total tests** across all modules
+- **Method-style API** - Ergonomic `Args.parse()` and `Args.parseFrom()` methods
 - **Function-based DSL** - Zero-duplication metadata extraction
 - **Argument parsing** for all supported types
 - **Environment variable support** - Priority chain and type conversion
@@ -471,7 +489,7 @@ Zync-CLI provides automatic, leak-free memory management:
 var arena = std.heap.ArenaAllocator.init(allocator);
 defer arena.deinit(); // Automatically frees all allocated memory
 
-const args = try cli.parseProcess(Args, arena.allocator());
+const args = try Args.parse(arena.allocator());
 // No manual string cleanup required!
 ```
 
