@@ -45,6 +45,50 @@ pub fn getAnsiSequence(color: tty.Color) []const u8 {
     };
 }
 
+/// Add colored text to ArrayList (backward compatibility)
+pub fn addText(list: *std.ArrayList(u8), color: tty.Color, text: []const u8) !void {
+    if (supportsColor()) {
+        try list.appendSlice(getAnsiSequence(color));
+        try list.appendSlice(text);
+        try list.appendSlice(getAnsiSequence(.reset));
+    } else {
+        try list.appendSlice(text);
+    }
+}
+
+/// Add formatted colored text to ArrayList
+pub fn addTextf(list: *std.ArrayList(u8), color: tty.Color, comptime fmt: []const u8, args: anytype) !void {
+    if (supportsColor()) {
+        try list.appendSlice(getAnsiSequence(color));
+        try list.writer().print(fmt, args);
+        try list.appendSlice(getAnsiSequence(.reset));
+    } else {
+        try list.writer().print(fmt, args);
+    }
+}
+
+/// Add colored text to any writer
+pub fn addTextWriter(writer: anytype, color: tty.Color, text: []const u8) !void {
+    if (supportsColor()) {
+        try writer.writeAll(getAnsiSequence(color));
+        try writer.writeAll(text);
+        try writer.writeAll(getAnsiSequence(.reset));
+    } else {
+        try writer.writeAll(text);
+    }
+}
+
+/// Add formatted colored text to any writer
+pub fn addTextWriterf(writer: anytype, color: tty.Color, comptime fmt: []const u8, args: anytype) !void {
+    if (supportsColor()) {
+        try writer.writeAll(getAnsiSequence(color));
+        try writer.print(fmt, args);
+        try writer.writeAll(getAnsiSequence(.reset));
+    } else {
+        try writer.print(fmt, args);
+    }
+}
+
 
 /// Print colorized error message directly to stderr
 pub fn printError(message: []const u8, context: ?[]const u8, suggestion: ?[]const u8) void {
@@ -54,45 +98,22 @@ pub fn printError(message: []const u8, context: ?[]const u8, suggestion: ?[]cons
     }
     
     const stderr = std.io.getStdErr().writer();
-    const config = getStderrConfig();
     
-    // Print colored error message based on config type
-    switch (config) {
-        .escape_codes => {
-            config.setColor(stderr, .red) catch {};
-            stderr.print("Error: ", .{}) catch {};
-            config.setColor(stderr, .reset) catch {};
-            stderr.print("{s}", .{message}) catch {};
-            
-            if (context) |ctx| {
-                stderr.print(" (", .{}) catch {};
-                config.setColor(stderr, .bright_red) catch {};
-                stderr.print("'{s}'", .{ctx}) catch {};
-                config.setColor(stderr, .reset) catch {};
-                stderr.print(")", .{}) catch {};
-            }
-            
-            if (suggestion) |sug| {
-                stderr.print("\n\n", .{}) catch {};
-                config.setColor(stderr, .yellow) catch {};
-                stderr.print("Suggestion: ", .{}) catch {};
-                config.setColor(stderr, .reset) catch {};
-                stderr.print("{s}", .{sug}) catch {};
-            }
-        },
-        else => {
-            // No color support, plain text
-            stderr.print("Error: {s}", .{message}) catch {};
-            if (context) |ctx| {
-                stderr.print(" ('{s}')", .{ctx}) catch {};
-            }
-            if (suggestion) |sug| {
-                stderr.print("\n\nSuggestion: {s}", .{sug}) catch {};
-            }
-        },
+    // Build the error message using writer API for direct output
+    addTextWriter(stderr, .red, "Error: ") catch {};
+    addTextWriter(stderr, .reset, message) catch {};
+    
+    if (context) |ctx| {
+        addTextWriterf(stderr, .dim, " ('{s}')", .{ctx}) catch {};
     }
     
-    stderr.print("\n", .{}) catch {};
+    if (suggestion) |sug| {
+        addTextWriter(stderr, .dim, "\n\n") catch {};
+        addTextWriter(stderr, .yellow, "Suggestion: ") catch {};
+        addTextWriter(stderr, .reset, sug) catch {};
+    }
+    
+    addTextWriter(stderr, .dim, "\n") catch {};
 }
 
 

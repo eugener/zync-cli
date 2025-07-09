@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-156%2F156%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-94%2F94%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -11,12 +11,11 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 
 - **Zero Runtime Overhead** - All parsing logic resolved at compile time
 - **Type Safe** - Full compile-time type checking and validation
-- **Automatic DSL** - Zero-duplication, automatic metadata extraction
+- **Function-based DSL** - Zero-duplication metadata extraction
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 156 comprehensive tests covering all functionality
-- **Self-Documenting** - Automatic help generation from field definitions
-- **Automatic Help** - Built-in help flag processing with no user code required
+- **Battle Tested** - 94 comprehensive tests covering all functionality
+- **Automatic Help** - Built-in help generation and flag processing
 - **Colorized Output** - Beautiful terminal colors with smart detection and fallback
 
 ## Quick Start
@@ -38,19 +37,19 @@ exe.root_module.addImport("zync-cli", zync_cli.module("zync-cli"));
 
 ```zig
 const std = @import("std");
-const zync_cli = @import("zync-cli");
+const cli = @import("zync-cli");
 
-const Args = zync_cli.Args(&.{
-    zync_cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-    zync_cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
-    zync_cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+    cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
 });
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     
-    const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
+    const args = cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
         error.HelpRequested => {
             // Help was automatically displayed by the parser
             return;
@@ -79,23 +78,15 @@ Hello, Alice!
 Hello, Alice!
 
 $ ./myapp --help
-zync-cli-demo
+CLI Application
 
-A demonstration of the Zync-CLI library
-
-Usage: zync-cli-demo [OPTIONS]
+Usage: myapp [OPTIONS]
 
 Options:
-  -v, --verbose         Enable verbose output
-  -n, --name [value]    Set name value (default: World)
-  -c, --count [value]   Set count value (default: 1)
-  -p, --port [value]    Set port value (default: 8080)
-  -h, --help            Show this help message
-  -f, --config <value>  Set config value (required)
-
-Examples:
-  zync-cli-demo --name Alice --config app.conf
-  zync-cli-demo -v --count 3 --config /etc/myapp.conf
+  -v, --verbose           Enable verbose output
+  -n, --name [value]      Name to greet (default: World)
+  -c, --count [value]     Number of times to greet (default: 1)
+  -h, --help              Show this help message
 ```
 
 ## Colorized Output
@@ -150,35 +141,21 @@ FORCE_COLOR=1 ./myapp --help
 ./myapp --help
 ```
 
-## Automatic DSL
+## Function-based DSL
 
-Zync-CLI uses an automatic DSL for defining CLI arguments:
+Zync-CLI uses a function-based DSL for defining CLI arguments:
 
 Clean, IDE-friendly syntax with explicit configuration:
 
 ```zig
-const Args = struct {
-    verbose: bool = zync_cli.flag(.{ .short = 'v', .help = "Enable verbose output" }),
-    config: []const u8 = zync_cli.required([]const u8, zync_cli.RequiredConfig([]const u8){ 
-        .short = 'c', 
-        .help = "Configuration file path" 
-    }),
-    port: u16 = zync_cli.option(zync_cli.Option(u16){ 
-        .short = 'p', 
-        .default = 8080, 
-        .help = "Port number to listen on" 
-    }),
-    input: []const u8 = zync_cli.positional([]const u8, zync_cli.PositionalConfig([]const u8){ 
-        .help = "Input file path" 
-    }),
-    
-    pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
-        .{ .name = "verbose", .short = 'v', .help = "Enable verbose output" },
-        .{ .name = "config", .short = 'c', .required = true, .help = "Configuration file path" },
-        .{ .name = "port", .short = 'p', .default = "8080", .help = "Port number to listen on" },
-        .{ .name = "input", .positional = true, .help = "Input file path" },
-    };
-};
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+    cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of times to greet" }),
+    cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port number to listen on" }),
+    cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path" }),
+    cli.positional("input", []const u8, .{ .help = "Input file to process" }),
+});
 ```
 
 **Benefits:**
@@ -190,45 +167,25 @@ const Args = struct {
 
 ### Enhanced Features
 
-The automatic DSL includes powerful features that eliminate duplication and ensure type safety:
+The function-based DSL includes powerful features that eliminate duplication and ensure type safety:
 
 ```zig
-const Args = struct {
-    // Field definitions using DSL functions
-    verbose: bool = zync_cli.flag(.{ .short = 'v', .help = "Enable verbose output" }),
-    debug: bool = zync_cli.flag(.{ .short = 'd', .help = "Debug mode", .hidden = true }),
-    name: []const u8 = zync_cli.option(zync_cli.Option([]const u8){ 
-        .short = 'n', 
-        .default = "World", 
-        .help = "Name to greet" 
-    }),
-    count: u32 = zync_cli.option(zync_cli.Option(u32){ 
-        .short = 'c', 
-        .default = 5, 
-        .help = "Number of iterations" 
-    }),
-    config: []const u8 = zync_cli.required([]const u8, zync_cli.RequiredConfig([]const u8){ 
-        .short = 'f', 
-        .help = "Configuration file path" 
-    }),
-    
-    // Metadata using helper functions - no duplication, automatic type conversion!
-    pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
-        zync_cli.flagMeta("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
-        zync_cli.flagMeta("debug", .{ .short = 'd', .help = "Debug mode", .hidden = true }),
-        zync_cli.optionMeta([]const u8, "name", .{ .short = 'n', .default = "World", .help = "Name to greet" }),
-        zync_cli.optionMeta(u32, "count", .{ .short = 'c', .default = 5, .help = "Number of iterations" }),
-        zync_cli.requiredMeta("config", .{ .short = 'f', .help = "Configuration file path" }),
-    };
-};
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    cli.flag("debug", .{ .short = 'd', .help = "Debug mode", .hidden = true }),
+    cli.option("name", []const u8, .{ .short = 'n', .default = "World", .help = "Name to greet" }),
+    cli.option("count", u32, .{ .short = 'c', .default = 5, .help = "Number of iterations" }),
+    cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path" }),
+    cli.positional("input", []const u8, .{ .help = "Input file to process" }),
+});
 ```
 
 **Key Benefits:**
-- **No duplication** - Same configuration objects used for both field definitions and metadata
-- **Type safety** - Automatic type checking and conversion between field types and string defaults
+- **Zero duplication** - Single function call defines everything
+- **Type safety** - Compile-time validation of all configurations
 - **Hidden flags** - Support for flags that work but don't appear in help text
-- **Automatic conversion** - Numbers and booleans automatically converted to string defaults
-- **Clean syntax** - Much more readable than manual FieldMetadata construction
+- **Automatic metadata** - Help text and parsing automatically generated
+- **Clean syntax** - Minimal, readable DSL with full IDE support
 
 
 
@@ -261,67 +218,69 @@ Parse from custom argument array.
 
 ```zig
 const args = &.{"--verbose", "--name", "Alice"};
-const result = try zync_cli.parse(Args, arena.allocator(), args);
+const result = try cli.parse(Args, arena.allocator(), args);
 ```
 
 #### `parseProcess(T, allocator)`
 Parse command-line arguments from process (automatically skips program name).
 
 ```zig
-const result = try zync_cli.parseProcess(Args, arena.allocator());
+const result = try cli.parseProcess(Args, arena.allocator());
 ```
 
-#### `Parser(T)`
-Type-specific parser with compile-time optimization.
+#### `help(T, allocator)`
+Generate help text for DSL-defined arguments.
 
 ```zig
-const result = try zync_cli.Parser(Args).parse(allocator, args);
-const help_text = zync_cli.Parser(Args).help();
-```
-
-#### `help(T)`
-Generate help text for struct type `T`.
-
-```zig
-const help_text = zync_cli.help(Args);
+const help_text = try cli.help(Args, allocator);
 std.debug.print("{s}\n", .{help_text});
 ```
 
 #### `validate(T)`
-Compile-time validation of struct definition.
+Compile-time validation of argument definitions.
 
 ```zig
-comptime zync_cli.validate(Args); // Validates at compile time
+comptime cli.validate(Args); // Validates at compile time
 ```
 
-### DSL Metadata Helpers
+### DSL Functions
 
-#### `flagMeta(name, config)`
-Create FieldMetadata from FlagConfig.
+#### `Args(definitions)`
+Create argument struct from DSL definitions.
 
 ```zig
-const metadata = zync_cli.flagMeta("verbose", .{ .short = 'v', .help = "Enable verbose output" });
+const Args = cli.Args(&.{
+    cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    cli.option("name", []const u8, .{ .default = "World", .help = "Name to greet" }),
+});
 ```
 
-#### `optionMeta(T, name, config)`
-Create FieldMetadata from OptionConfig with automatic type conversion.
+#### `flag(name, config)`
+Define a boolean flag.
 
 ```zig
-const metadata = zync_cli.optionMeta(u32, "count", .{ .short = 'c', .default = 5, .help = "Number of iterations" });
+cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" })
 ```
 
-#### `requiredMeta(name, config)`
-Create FieldMetadata from RequiredConfig.
+#### `option(name, type, config)`
+Define an optional value with default.
 
 ```zig
-const metadata = zync_cli.requiredMeta("config", .{ .short = 'f', .help = "Configuration file path" });
+cli.option("count", u32, .{ .short = 'c', .default = 1, .help = "Number of iterations" })
 ```
 
-#### `positionalMeta(T, name, config)`
-Create FieldMetadata from PositionalConfig.
+#### `required(name, type, config)`
+Define a required value.
 
 ```zig
-const metadata = zync_cli.positionalMeta([]const u8, "input", .{ .help = "Input file path" });
+cli.required("config", []const u8, .{ .short = 'f', .help = "Configuration file path" })
+```
+
+#### `positional(name, type, config)`
+Define a positional argument.
+
+```zig
+cli.positional("input", []const u8, .{ .help = "Input file path" })
 ```
 
 ### Simple Return Values
@@ -330,7 +289,7 @@ Parsing functions now return the parsed arguments directly:
 
 ```zig
 // Simple and clean
-const args = try zync_cli.parseProcess(Args, arena.allocator());
+const args = try cli.parseProcess(Args, arena.allocator());
 // No manual cleanup needed - arena handles memory
 ```
 
@@ -339,36 +298,23 @@ const args = try zync_cli.parseProcess(Args, arena.allocator());
 Zync-CLI automatically handles help flags and displays help text before any validation occurs:
 
 ```zig
-const args = zync_cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
+const args = cli.parseProcess(Args, arena.allocator()) catch |err| switch (err) {
     error.HelpRequested => {
         // Help was automatically displayed by the parser
         return;
     },
-    error.UnknownFlag => {
-        std.debug.print("Unknown flag provided. Use --help for usage.\n", .{});
-        return;
+    else => {
+        // Error was already printed by the parser, just exit
+        std.process.exit(1);
     },
-    error.MissingRequiredArgument => {
-        std.debug.print("Missing required argument. Use --help for usage.\n", .{});
-        return;
-    },
-    error.MissingValue => {
-        std.debug.print("Missing required value. Use --help for usage.\n", .{});
-        return;
-    },
-    error.InvalidValue => {
-        std.debug.print("Invalid value format. Use --help for usage.\n", .{});
-        return;
-    },
-    else => return err,
 };
 ```
 
 **Key Features:**
-- **No manual help checking required** - Help flags are processed automatically
+- **Automatic help processing** - Help flags are processed automatically
 - **Pre-validation help** - Help works even when required fields are missing
 - **Standard conventions** - Supports both `--help` and `-h` flags
-- **Custom help fields** - Automatically detects help fields in your struct
+- **Automatic error handling** - Errors are displayed automatically with suggestions
 
 ## Testing
 
@@ -392,41 +338,32 @@ zig build test --summary all
 ### Test Utilities
 
 ```zig
-const zync_cli = @import("zync-cli");
+const cli = @import("zync-cli");
 
 test "my CLI parsing" {
-    const Args = struct {
-        verbose: bool = zync_cli.flag(.{ .short = 'v', .help = "Enable verbose output" }),
-        name: []const u8 = zync_cli.option(zync_cli.OptionConfig([]const u8){ 
-            .short = 'n', 
-            .default = "test", 
-            .help = "Name to use" 
-        }),
-        
-        pub const dsl_metadata = &[_]zync_cli.FieldMetadata{
-            .{ .name = "verbose", .short = 'v', .help = "Enable verbose output" },
-            .{ .name = "name", .short = 'n', .default = "test", .help = "Name to use" },
-        };
-    };
+    const Args = cli.Args(&.{
+        cli.flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        cli.option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Name to use" }),
+    });
     
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
     // Test successful parsing
-    const result = try zync_cli.parse(Args, arena.allocator(), &.{"--verbose", "--name", "Alice"});
+    const result = try cli.parse(Args, arena.allocator(), &.{"--verbose", "--name", "Alice"});
     try std.testing.expect(result.verbose == true);
     try std.testing.expectEqualStrings(result.name, "Alice");
     
     // Test error conditions
     try std.testing.expectError(error.UnknownFlag, 
-        zync_cli.parse(Args, arena.allocator(), &.{"--invalid"}));
+        cli.parse(Args, arena.allocator(), &.{"--invalid"}));
 }
 ```
 
 ### Current Test Coverage
 
-- **156 total tests** across all modules
-- **Automatic DSL** - Zero-duplication, automatic metadata extraction
+- **94 total tests** across all modules
+- **Function-based DSL** - Zero-duplication metadata extraction
 - **Argument parsing** for all supported types
 - **Required field validation** with `required()` function
 - **Default value handling** with `option()` function
@@ -449,7 +386,7 @@ Zync-CLI provides automatic, leak-free memory management:
 var arena = std.heap.ArenaAllocator.init(allocator);
 defer arena.deinit(); // Automatically frees all allocated memory
 
-const args = try zync_cli.parseProcess(Args, arena.allocator());
+const args = try cli.parseProcess(Args, arena.allocator());
 // No manual string cleanup required!
 ```
 
@@ -465,7 +402,7 @@ const args = try zync_cli.parseProcess(Args, arena.allocator());
 
 - **Compile-Time Parsing**: Zero runtime overhead for argument definitions
 - **Minimal Allocations**: Only allocates memory for string arguments and diagnostics
-- **Automatic Cleanup**: O(1) cleanup cost proportional to allocated strings
+- **Automatic Cleanup**: O(1) cleanup cost regardless of argument count
 - **Cache Friendly**: Contiguous memory layout for parsed arguments
 
 ## Project Structure
@@ -479,7 +416,7 @@ zync-cli/
 │   ├── meta.zig        # Compile-time metadata extraction
 │   ├── dsl.zig         # Function-based DSL implementation
 │   ├── help.zig        # Help text generation
-│   ├── colors.zig      # Terminal color support and formatting
+│   ├── colors.zig      # Advanced color API with format support and writer interface
 │   ├── testing.zig     # Testing utilities
 │   └── main.zig        # Demo application
 ├── build.zig           # Build configuration
@@ -527,49 +464,32 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 
 ### Completed (v0.1.0)
 - [x] Core argument parsing engine
-- [x] Field encoding DSL
+- [x] Function-based DSL
 - [x] Memory-safe string handling
 - [x] Comprehensive test suite
 - [x] Help text generation
 - [x] Error handling with diagnostics
 
 ### Completed (v0.2.0)
-- [x] Required field validation with `!` syntax
-- [x] Default value handling with `=value` syntax
-- [x] Positional argument support with `#` syntax
+- [x] Required field validation
+- [x] Default value handling
+- [x] Positional argument support
 - [x] Idiomatic Zig architecture with arena allocation
-- [x] Type-specific parsers with compile-time optimization
 - [x] Comprehensive error handling
 - [x] Dynamic help generation from field metadata
-- [x] Automatic help flag processing (no user code required)
-- [x] Colorized terminal output with smart detection
-- [x] Cross-platform color support with environment controls
-- [x] Enhanced error messages with context and suggestions
-- [x] 119 comprehensive tests
+- [x] Automatic help flag processing
 
 ### Completed (v0.3.0)
-- [x] Colorized help and error output
-- [x] Smart color detection with environment variable support
-- [x] Enhanced error messages with detailed context
-- [x] ANSI color support with graceful fallback
-
-### Completed (v0.4.0)
-- [x] Automatic DSL with zero-duplication metadata extraction
-- [x] Enhanced metadata system with explicit configuration
-- [x] Rich help text with descriptions and type information
-- [x] Type-safe configuration structs
-- [x] 156 comprehensive tests covering both DSL approaches
-
-### Completed (v0.4.1) - Major Breakthrough!
-- [x] **Enhanced DSL metadata helpers** - Dramatically reduces duplication by reusing config objects
-- [x] **Automatic type conversion** - Intelligent conversion of defaults (int/float/bool to string)
-- [x] **Hidden flag support** - Flags that work but don't appear in help (fixed in help generation)
-- [x] **Flexible metadata helpers** - Type-safe helpers for all DSL configuration types
-- [x] **Proof of concept for automatic DSL** - Demonstrated full metadata extraction from field definitions
+- [x] **Function-based DSL** - Zero-duplication metadata extraction
+- [x] **Enhanced color system** - Format support and writer interface
+- [x] **Improved error handling** - Clean messages without stacktraces
+- [x] **Function optimization** - Removed redundant functions, improved naming
+- [x] **Stdlib integration** - Uses `std.io.tty` for color detection
+- [x] **94 comprehensive tests** - Full coverage of current functionality
 
 ### In Progress
-- [ ] Advanced field encodings (`*`, `+`, `$`)
-- [ ] Complete automatic DSL metadata generation (eliminate explicit declarations)
+- [ ] Environment variable integration
+- [ ] Configuration file parsing
 
 ### Planned (v0.5.0)
 - [ ] Environment variable integration

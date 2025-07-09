@@ -367,6 +367,14 @@ zync-cli/
 ### Completed (v0.2.0) - Major Architecture Refactoring
 - [x] **Idiomatic Zig architecture** with arena allocation
 - [x] **Simplified API** removing redundant cli namespace
+
+### Completed (v0.3.0) - Advanced Color System & API Improvements
+- [x] **Enhanced color API** with format support (`addTextf`, `addTextWriterf`)
+- [x] **Writer interface support** for any output destination
+- [x] **Function cleanup and optimization** - removed 12 redundant functions
+- [x] **Improved error handling** with clean user-facing messages
+- [x] **Simplified color detection** using stdlib TTY support
+- [x] **Comprehensive function renaming** following Zig conventions
 - [x] **Type-specific parsers** with compile-time optimization
 - [x] **Required field validation** with `!` syntax
 - [x] **Default value handling** with `=value` syntax

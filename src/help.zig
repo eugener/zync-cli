@@ -40,27 +40,14 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
     var help_text = std.ArrayList(u8).init(allocator);
     defer help_text.deinit();
     
-    // Helper function to add colored or plain text
-    const addText = struct {
-        fn call(list: *std.ArrayList(u8), color: colors.tty.Color, text: []const u8) !void {
-            if (colors.supportsColor()) {
-                try list.appendSlice(colors.getAnsiSequence(color));
-                try list.appendSlice(text);
-                try list.appendSlice(colors.getAnsiSequence(.reset));
-            } else {
-                try list.appendSlice(text);
-            }
-        }
-    }.call;
-    
     // Title
-    try addText(&help_text, .bright_cyan, "CLI Application");
-    try help_text.appendSlice("\n\n");
+    try colors.addText(&help_text, .bright_cyan, "CLI Application");
+    try colors.addText(&help_text, .dim, "\n\n");
     
     // Usage line with actual program name
-    try help_text.appendSlice("Usage: ");
     const actual_program_name = program_name orelse "program";
-    try addText(&help_text, .bright_white, actual_program_name);
+    try colors.addText(&help_text, .dim, "Usage: ");
+    try colors.addText(&help_text, .bright_white, actual_program_name);
     
     // Add options if any non-positional fields exist
     comptime var has_options = false;
@@ -73,7 +60,7 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
         }
     }
     if (has_options) {
-        try help_text.appendSlice(" [OPTIONS]");
+        try colors.addText(&help_text, .dim, " [OPTIONS]");
     }
     
     // Add positional args to usage if any
@@ -81,16 +68,16 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
     inline for (field_info) |field| {
         if (field.positional) {
             if (!has_positional) {
-                try addText(&help_text, .dim, " [ARGS...]");
+                try colors.addText(&help_text, .dim, " [ARGS...]");
                 has_positional = true;
             }
         }
     }
-    try help_text.appendSlice("\n\n");
+    try colors.addText(&help_text, .dim, "\n\n");
     
     // Options section
-    try addText(&help_text, .bold, "Options:");
-    try help_text.appendSlice("\n");
+    try colors.addText(&help_text, .bold, "Options:");
+    try colors.addText(&help_text, .dim, "\n");
     
     // Calculate the maximum width for proper alignment
     comptime var max_option_width: usize = 0;
@@ -134,32 +121,32 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
             
             var option_width: usize = 0;
             
-            try help_text.appendSlice("  ");
+            try colors.addText(&help_text, .dim, "  ");
             option_width += 2;
             
             // Short flag
             if (field.short) |short| {
-                try addText(&help_text, .green, "-");
+                try colors.addText(&help_text, .green, "-");
                 try help_text.append(short);
-                try addText(&help_text, .green, ", ");
+                try colors.addText(&help_text, .green, ", ");
                 option_width += 4;
             } else {
-                try help_text.appendSlice("    ");
+                try colors.addText(&help_text, .dim, "    ");
                 option_width += 4;
             }
             
             // Long flag  
-            try addText(&help_text, .green, "--");
-            try addText(&help_text, .green, field.name);
+            try colors.addText(&help_text, .green, "--");
+            try colors.addText(&help_text, .green, field.name);
             option_width += 2 + field.name.len;
             
             // Value type indicator
             if (!is_bool) {
-                try help_text.appendSlice(" ");
+                try colors.addText(&help_text, .dim, " ");
                 if (field.required) {
-                    try addText(&help_text, .red, "<value>");
+                    try colors.addText(&help_text, .red, "<value>");
                 } else {
-                    try addText(&help_text, .dim, "[value]");
+                    try colors.addText(&help_text, .dim, "[value]");
                 }
                 option_width += 8;
             }
@@ -177,16 +164,16 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
             
             // Default value or required indicator
             if (field.default) |default| {
-                try help_text.appendSlice(" (default: ");
-                try addText(&help_text, .magenta, default);
-                try help_text.appendSlice(")");
+                try colors.addText(&help_text, .dim, " (default: ");
+                try colors.addText(&help_text, .magenta, default);
+                try colors.addText(&help_text, .dim, ")");
             } else if (field.required) {
-                try help_text.appendSlice(" (");
-                try addText(&help_text, .red, "required");
-                try help_text.appendSlice(")");
+                try colors.addText(&help_text, .dim, " (");
+                try colors.addText(&help_text, .red, "required");
+                try colors.addText(&help_text, .dim, ")");
             }
             
-            try help_text.appendSlice("\n");
+            try colors.addText(&help_text, .dim, "\n");
         }
     }
     
@@ -201,8 +188,8 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
     };
     
     if (!has_user_help) {
-        try help_text.appendSlice("  ");
-        try addText(&help_text, .green, "-h, --help");
+        try colors.addText(&help_text, .dim, "  ");
+        try colors.addText(&help_text, .green, "-h, --help");
         
         // Add proper padding for help option
         const help_option_width = 2 + 4 + 6; // "  " + "-h, " + "--help"
@@ -212,7 +199,7 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
             try help_text.append(' ');
         }
         
-        try help_text.appendSlice("Show this help message\n");
+        try colors.addText(&help_text, .dim, "Show this help message\n");
     }
     
     // Show positional arguments if any
@@ -236,17 +223,17 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
     inline for (field_info) |field| {
         if (field.positional) {
             if (!has_printed_pos_header) {
-                try help_text.appendSlice("\n");
-                try addText(&help_text, .bold, "Arguments:");
-                try help_text.appendSlice("\n");
+                try colors.addText(&help_text, .dim, "\n");
+                try colors.addText(&help_text, .bold, "Arguments:");
+                try colors.addText(&help_text, .dim, "\n");
                 has_printed_pos_header = true;
             }
             
             var arg_width: usize = 0;
-            try help_text.appendSlice("  ");
+            try colors.addText(&help_text, .dim, "  ");
             arg_width += 2;
             
-            try addText(&help_text, .green, field.name);
+            try colors.addText(&help_text, .green, field.name);
             arg_width += field.name.len;
             
             // Add padding to align descriptions
@@ -256,8 +243,8 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
                 try help_text.append(' ');
             }
             
-            try help_text.appendSlice(extractFieldDescription(field));
-            try help_text.appendSlice("\n");
+            try colors.addText(&help_text, .dim, extractFieldDescription(field));
+            try colors.addText(&help_text, .dim, "\n");
         }
     }
     
