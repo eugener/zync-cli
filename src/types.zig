@@ -5,8 +5,33 @@
 
 const std = @import("std");
 
-/// Errors that can occur during argument parsing (moved to parser.zig)
-pub const ParseError = @import("parser.zig").ParseError;
+/// Errors that can occur during argument parsing
+pub const ParseError = error{
+    /// Unknown command-line flag was encountered
+    UnknownFlag,
+    /// A required argument was not provided
+    MissingRequiredArgument,
+    /// A flag that requires a value was not given one
+    MissingValue,
+    /// An invalid value was provided for a flag
+    InvalidValue,
+    /// Too many positional arguments were provided
+    TooManyPositionalArgs,
+    /// Not enough positional arguments were provided
+    NotEnoughPositionalArgs,
+    /// Memory allocation failed
+    OutOfMemory,
+    /// Help was requested and displayed
+    HelpRequested,
+};
+
+/// Location information for errors and diagnostics
+pub const Location = struct {
+    /// Index of the argument in the argv array
+    arg_index: usize,
+    /// Character index within the argument
+    char_index: usize,
+};
 
 /// Detailed error information for parsing failures
 pub const DetailedParseError = struct {
@@ -57,14 +82,6 @@ pub const DetailedParseError = struct {
         
         return try std.mem.join(allocator, "", parts.items);
     }
-    
-    /// Location information for errors
-    pub const Location = struct {
-        /// Index of the argument in the argv array
-        arg_index: usize,
-        /// Character index within the argument
-        char_index: usize,
-    };
 };
 
 /// Diagnostic information about parsing issues
@@ -88,14 +105,6 @@ pub const Diagnostic = struct {
         info,
         /// Helpful hint for the user
         hint,
-    };
-    
-    /// Location information for diagnostics
-    pub const Location = struct {
-        /// Index of the argument in the argv array
-        arg_index: usize,
-        /// Character index within the argument
-        char_index: usize,
     };
 };
 

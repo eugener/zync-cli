@@ -4,7 +4,8 @@
 //! using Zig's built-in TTY support.
 
 const std = @import("std");
-pub const tty = std.io.tty;
+const test_utils = @import("test_utils.zig");
+const tty = std.io.tty;
 
 /// Check if colors are supported (for backward compatibility)
 pub fn supportsColor() bool {
@@ -35,57 +36,53 @@ pub fn getAnsiSequence(color: tty.Color) []const u8 {
     };
 }
 
+/// Write colored text to any writer (unified function)
+pub fn writeColored(writer: anytype, color: tty.Color, text: []const u8) !void {
+    if (supportsColor()) {
+        try writer.writeAll(getAnsiSequence(color));
+        try writer.writeAll(text);
+        try writer.writeAll(getAnsiSequence(.reset));
+    } else {
+        try writer.writeAll(text);
+    }
+}
+
+/// Write formatted colored text to any writer (unified function)
+pub fn writeColoredf(writer: anytype, color: tty.Color, comptime fmt: []const u8, args: anytype) !void {
+    if (supportsColor()) {
+        try writer.writeAll(getAnsiSequence(color));
+        try writer.print(fmt, args);
+        try writer.writeAll(getAnsiSequence(.reset));
+    } else {
+        try writer.print(fmt, args);
+    }
+}
+
 /// Add colored text to ArrayList (backward compatibility)
 pub fn addText(list: *std.ArrayList(u8), color: tty.Color, text: []const u8) !void {
-    if (supportsColor()) {
-        try list.appendSlice(getAnsiSequence(color));
-        try list.appendSlice(text);
-        try list.appendSlice(getAnsiSequence(.reset));
-    } else {
-        try list.appendSlice(text);
-    }
+    try writeColored(list.writer(), color, text);
 }
 
-/// Add formatted colored text to ArrayList
+/// Add formatted colored text to ArrayList (backward compatibility)
 pub fn addTextf(list: *std.ArrayList(u8), color: tty.Color, comptime fmt: []const u8, args: anytype) !void {
-    if (supportsColor()) {
-        try list.appendSlice(getAnsiSequence(color));
-        try list.writer().print(fmt, args);
-        try list.appendSlice(getAnsiSequence(.reset));
-    } else {
-        try list.writer().print(fmt, args);
-    }
+    try writeColoredf(list.writer(), color, fmt, args);
 }
 
-/// Add colored text to any writer
+/// Add colored text to any writer (backward compatibility)
 pub fn addTextWriter(writer: anytype, color: tty.Color, text: []const u8) !void {
-    if (supportsColor()) {
-        try writer.writeAll(getAnsiSequence(color));
-        try writer.writeAll(text);
-        try writer.writeAll(getAnsiSequence(.reset));
-    } else {
-        try writer.writeAll(text);
-    }
+    try writeColored(writer, color, text);
 }
 
-/// Add formatted colored text to any writer
+/// Add formatted colored text to any writer (backward compatibility)
 pub fn addTextWriterf(writer: anytype, color: tty.Color, comptime fmt: []const u8, args: anytype) !void {
-    if (supportsColor()) {
-        try writer.writeAll(getAnsiSequence(color));
-        try writer.print(fmt, args);
-        try writer.writeAll(getAnsiSequence(.reset));
-    } else {
-        try writer.print(fmt, args);
-    }
+    try writeColoredf(writer, color, fmt, args);
 }
 
 
 /// Print colorized error message directly to stderr
 pub fn printError(message: []const u8, context: ?[]const u8, suggestion: ?[]const u8) void {
     // In test mode, do nothing to avoid hanging
-    if (@import("builtin").is_test) {
-        return;
-    }
+    test_utils.exitIfTest();
     
     const stderr = std.io.getStdErr().writer();
     

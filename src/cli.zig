@@ -5,6 +5,7 @@
 
 const std = @import("std");
 const FieldMetadata = @import("meta.zig").FieldMetadata;
+const test_utils = @import("test_utils.zig");
 
 
 
@@ -464,9 +465,7 @@ fn parseSubcommandArgs(comptime ArgsType: type, allocator: std.mem.Allocator, ar
             std.debug.print("{s}\n", .{help_text});
             
             // In test mode, return error for test control
-            if (@import("builtin").is_test) {
-                return error.HelpRequested;
-            }
+            try test_utils.errorIfTest(error.HelpRequested);
             // In normal mode, exit gracefully after displaying help
             std.process.exit(0);
         }
@@ -762,7 +761,7 @@ fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConf
             return parseFrom(allocator, cli_args) catch |err| switch (err) {
                 error.HelpRequested => {
                     // In test mode, re-throw the error for test control
-                    if (@import("builtin").is_test) {
+                    if (test_utils.isTestMode()) {
                         return err;
                     }
                     // In normal mode, help was already displayed, exit gracefully
@@ -770,7 +769,7 @@ fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConf
                 },
                 else => {
                     // In test mode, return error for testing
-                    if (@import("builtin").is_test) {
+                    if (test_utils.isTestMode()) {
                         return err;
                     }
                     // In normal mode, parser already exited, this should never be reached
@@ -786,7 +785,7 @@ fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConf
             return parseFromRaw(allocator, args) catch |err| switch (err) {
                 error.HelpRequested => {
                     // In test mode, re-throw the error for test control
-                    if (@import("builtin").is_test) {
+                    if (test_utils.isTestMode()) {
                         return err;
                     }
                     // In normal mode, help was already displayed, exit gracefully
@@ -794,7 +793,7 @@ fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConf
                 },
                 else => {
                     // In test mode, return error for testing
-                    if (@import("builtin").is_test) {
+                    if (test_utils.isTestMode()) {
                         return err;
                     }
                     // In normal mode, parser already exited, this should never be reached

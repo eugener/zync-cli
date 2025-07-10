@@ -7,26 +7,12 @@ const meta = @import("meta.zig");
 const help = @import("help.zig");
 const types = @import("types.zig");
 const colors = @import("colors.zig");
+const test_utils = @import("test_utils.zig");
+const field_utils = @import("field_utils.zig");
+const error_utils = @import("error_utils.zig");
 
 /// Errors that can occur during argument parsing
-pub const ParseError = error{
-    /// Unknown command-line flag was encountered
-    UnknownFlag,
-    /// A required argument was not provided
-    MissingRequiredArgument,
-    /// A flag that requires a value was not given one
-    MissingValue,
-    /// An invalid value was provided for a flag
-    InvalidValue,
-    /// Too many positional arguments were provided
-    TooManyPositionalArgs,
-    /// Not enough positional arguments were provided
-    NotEnoughPositionalArgs,
-    /// Memory allocation failed
-    OutOfMemory,
-    /// Help was requested and displayed
-    HelpRequested,
-};
+pub const ParseError = types.ParseError;
 
 /// Parse arguments from a string array into the specified type
 pub fn parseFrom(comptime T: type, allocator: std.mem.Allocator, args: []const []const u8) !T {
@@ -113,9 +99,7 @@ fn parseLongFlag(
             const detailed_error = try createUnknownFlagError(T, flag_name, allocator);
             colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
             // In test mode, return error for test control
-            if (@import("builtin").is_test) {
-                return ParseError.UnknownFlag;
-            }
+            try test_utils.errorIfTest(ParseError.UnknownFlag);
             // In normal mode, exit quietly after displaying error
             std.process.exit(0);
         }
@@ -138,9 +122,7 @@ fn parseLongFlag(
                     const detailed_error = try createMissingValueError(flag_name, allocator);
                     colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                     // In test mode, return error for test control
-                    if (@import("builtin").is_test) {
-                        return ParseError.MissingValue;
-                    }
+                    try test_utils.errorIfTest(ParseError.MissingValue);
                     // In normal mode, exit immediately after displaying error
                     std.process.exit(1);
                 }
@@ -155,9 +137,7 @@ fn parseLongFlag(
             const detailed_error = try createUnknownFlagError(T, flag_name, allocator);
             colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
             // In test mode, return error for test control
-            if (@import("builtin").is_test) {
-                return ParseError.UnknownFlag;
-            }
+            try test_utils.errorIfTest(ParseError.UnknownFlag);
             // In normal mode, exit quietly after displaying error
             std.process.exit(0);
         }
@@ -211,9 +191,7 @@ fn parseShortFlag(
         const detailed_error = try createUnknownFlagError(T, flag_name, allocator);
         colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
         // In test mode, return error for test control
-        if (@import("builtin").is_test) {
-            return ParseError.UnknownFlag;
-        }
+        try test_utils.errorIfTest(ParseError.UnknownFlag);
         // In normal mode, exit quietly after displaying error
         std.process.exit(0);
     }
@@ -298,15 +276,7 @@ fn countProvidedPositional(field_info: anytype, provided: []const []const u8) us
 
 /// Check if a field is boolean
 fn isFieldBoolean(comptime T: type, field: meta.FieldMetadata) bool {
-    const struct_fields = std.meta.fields(T);
-    inline for (struct_fields) |struct_field| {
-        if (std.mem.eql(u8, struct_field.name, field.name) or
-            std.mem.startsWith(u8, struct_field.name, field.name) or
-            std.mem.endsWith(u8, struct_field.name, field.name)) {
-            return struct_field.type == bool;
-        }
-    }
-    return false;
+    return field_utils.isFieldBoolean(T, field);
 }
 
 /// Set field value from string
@@ -321,9 +291,7 @@ fn convertValueToType(comptime FieldType: type, value: []const u8, field_name: [
                 const detailed_error = try createInvalidValueError(field_name, value, "integer", allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 // In test mode, return error for test control
-                if (@import("builtin").is_test) {
-                    return ParseError.InvalidValue;
-                }
+                try test_utils.errorIfTest(ParseError.InvalidValue);
                 // In normal mode, exit immediately after displaying error
                 std.process.exit(1);
             };
@@ -333,9 +301,7 @@ fn convertValueToType(comptime FieldType: type, value: []const u8, field_name: [
                 const detailed_error = try createInvalidValueError(field_name, value, "integer", allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 // In test mode, return error for test control
-                if (@import("builtin").is_test) {
-                    return ParseError.InvalidValue;
-                }
+                try test_utils.errorIfTest(ParseError.InvalidValue);
                 // In normal mode, exit immediately after displaying error
                 std.process.exit(1);
             };
@@ -345,9 +311,7 @@ fn convertValueToType(comptime FieldType: type, value: []const u8, field_name: [
                 const detailed_error = try createInvalidValueError(field_name, value, "number", allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 // In test mode, return error for test control
-                if (@import("builtin").is_test) {
-                    return ParseError.InvalidValue;
-                }
+                try test_utils.errorIfTest(ParseError.InvalidValue);
                 // In normal mode, exit immediately after displaying error
                 std.process.exit(1);
             };
@@ -365,14 +329,7 @@ fn setFieldValue(comptime T: type, result: *T, field: meta.FieldMetadata, value:
     const struct_fields = std.meta.fields(T);
     
     inline for (struct_fields) |struct_field| {
-        const matches = if (field.positional)
-            // For positional fields, match field name directly (automatic DSL uses clean names)
-            std.mem.eql(u8, struct_field.name, field.name)
-        else
-            // For non-positional fields, use existing logic
-            std.mem.eql(u8, struct_field.name, field.name) or std.mem.startsWith(u8, struct_field.name, field.name);
-            
-        if (matches) {
+        if (field_utils.fieldMatches(struct_field, field)) {
             const field_ptr = &@field(result, struct_field.name);
             field_ptr.* = try convertValueToType(struct_field.type, value, field.name, allocator);
             return;
@@ -441,9 +398,7 @@ fn validateRequired(comptime T: type, field_info: anytype, result: T, provided: 
                 const detailed_error = try createMissingRequiredError(field.name, allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 // In test mode, return error for test control
-                if (@import("builtin").is_test) {
-                    return ParseError.MissingRequiredArgument;
-                }
+                try test_utils.errorIfTest(ParseError.MissingRequiredArgument);
                 // In normal mode, exit quietly after displaying error
                 std.process.exit(0);
             }
@@ -464,9 +419,7 @@ fn isHelpField(field_name: []const u8) bool {
 /// Helper function to handle help request with configuration
 fn handleHelpRequestWithConfig(comptime MetaType: type, allocator: std.mem.Allocator) !void {
     // In test mode, just return the error without printing help
-    if (@import("builtin").is_test) {
-        return ParseError.HelpRequested;
-    }
+    try test_utils.errorIfTest(ParseError.HelpRequested);
     
     // Check if MetaType has configuration
     if (@hasDecl(MetaType, "args_config")) {
@@ -580,71 +533,26 @@ fn formatFlagChar(allocator: std.mem.Allocator, flag_char: u8) ![]const u8 {
     return std.fmt.allocPrint(allocator, "{c}", .{flag_char});
 }
 
-/// Create a detailed error with a formatted suggestion
-fn createDetailedErrorWithSuggestion(
-    error_type: ParseError,
-    message: []const u8,
-    context: ?[]const u8,
-    allocator: std.mem.Allocator,
-    comptime suggestion_fmt: []const u8,
-    suggestion_args: anytype,
-) !types.DetailedParseError {
-    const suggestion = try std.fmt.allocPrint(allocator, suggestion_fmt, suggestion_args);
-    return types.DetailedParseError{
-        .error_type = error_type,
-        .message = message,
-        .context = context,
-        .suggestion = suggestion,
-    };
-}
-
 /// Create detailed error message for unknown flag
 fn createUnknownFlagError(comptime T: type, flag: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
     const suggestions = try findSuggestions(T, flag, allocator);
-    
-    return types.DetailedParseError{
-        .error_type = ParseError.UnknownFlag,
-        .message = "Unknown flag",
-        .context = flag,
-        .suggestion = "Use --help to see available options",
-        .alternatives = if (suggestions.len > 0) suggestions else null,
-    };
+    return error_utils.createUnknownFlagError(flag, if (suggestions.len > 0) suggestions else null, allocator);
 }
 
 /// Create detailed error message for missing value
 fn createMissingValueError(flag: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
-    _ = allocator;
-    return types.DetailedParseError{
-        .error_type = ParseError.MissingValue,
-        .message = "Flag requires a value",
-        .context = flag,
-        .suggestion = "Provide a value after the flag (e.g., --flag=value or --flag value)",
-    };
+    return error_utils.createMissingValueError(flag, allocator);
 }
 
 /// Create detailed error message for invalid value
 fn createInvalidValueError(flag: []const u8, value: []const u8, expected_type: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
     _ = value; // Not currently used but may be useful for logging
-    return createDetailedErrorWithSuggestion(
-        ParseError.InvalidValue,
-        "Invalid value for flag",
-        flag,
-        allocator,
-        "Expected {s} value for flag",
-        .{expected_type},
-    );
+    return error_utils.createInvalidValueError(flag, expected_type, allocator);
 }
 
 /// Create detailed error message for missing required argument
 fn createMissingRequiredError(field_name: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
-    return createDetailedErrorWithSuggestion(
-        ParseError.MissingRequiredArgument,
-        "Missing required argument",
-        field_name,
-        allocator,
-        "The --{s} flag is required",
-        .{field_name},
-    );
+    return error_utils.createMissingRequiredError(field_name, allocator);
 }
 
 test "parse simple arguments" {

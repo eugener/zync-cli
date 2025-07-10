@@ -7,6 +7,8 @@ const std = @import("std");
 const types = @import("types.zig");
 const meta = @import("meta.zig");
 const colors = @import("colors.zig");
+const test_utils = @import("test_utils.zig");
+const field_utils = @import("field_utils.zig");
 
 /// Extract the program name from process arguments
 pub fn extractProgramName(allocator: std.mem.Allocator) ![]const u8 {
@@ -295,9 +297,7 @@ pub fn formatHelpWithSubcommand(comptime T: type, allocator: std.mem.Allocator, 
 /// Print help text with colors for a specific type
 pub fn printHelp(comptime T: type) void {
     // In test mode, do nothing to avoid hanging
-    if (@import("builtin").is_test) {
-        return;
-    }
+    test_utils.exitIfTest();
 
     // Use a temporary arena allocator for help text generation
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -324,14 +324,7 @@ fn extractFieldType(comptime T: type, comptime field_name: []const u8) type {
     // Handle automatic DSL types that have ArgsType
     const TargetType = if (@hasDecl(T, "ArgsType")) T.ArgsType else T;
 
-    const struct_fields = std.meta.fields(TargetType);
-    inline for (struct_fields) |struct_field| {
-        // Exact field name matching
-        if (std.mem.eql(u8, struct_field.name, field_name)) {
-            return struct_field.type;
-        }
-    }
-    return []const u8; // Default fallback
+    return field_utils.getFieldType(TargetType, field_name) orelse []const u8; // Default fallback
 }
 
 /// Get field description from metadata or return empty if not provided
