@@ -307,15 +307,16 @@ const Args = struct {
 ### 🧪 Testing Infrastructure
 
 #### Comprehensive Test Coverage
-- **119 total tests** across all modules (100% passing)
+- **175 total tests** across all modules (100% passing)
 - **Individual module testing** with granular test commands
 - **Integration tests** covering end-to-end functionality
 - **Expanded coverage** including all DSL features and edge cases
 - **Automatic help testing** with comprehensive help flag scenarios
+- **ANSI-aware testing** with color code stripping for reliable cross-environment testing
 
 #### Test Commands
 ```bash
-# Run all tests (119 tests across 8 modules)
+# Run all tests (175 tests across 8 modules)
 zig build test
 
 # Run specific module tests
@@ -347,6 +348,9 @@ zig build test --summary all
 - ✅ Cross-platform ANSI color compatibility
 - ✅ Enhanced error messages with contextual highlighting
 - ✅ Integration testing with comprehensive scenarios
+- ✅ Nested subcommand testing with unlimited depth
+- ✅ Environment variable integration testing
+- ✅ ANSI color code handling in tests
 
 ### 🚀 Build System
 
@@ -384,7 +388,7 @@ zync-cli/
 │   ├── basic.zig       # Complete example with custom banner
 │   ├── environment.zig # Environment variable demonstration
 │   ├── subcommands.zig # Basic subcommand system demo
-│   └── multilevel.zig  # Complex multilevel command organization patterns
+│   └── nested.zig      # True nested subcommands with unlimited depth
 ├── build.zig           # Enhanced build configuration
 ├── spec.md             # Original library specification
 ├── README.md           # Comprehensive user documentation
@@ -450,19 +454,20 @@ zync-cli/
 
 ## 📊 Project Metrics
 
-- **Lines of Code**: ~1,500 (excluding tests)
-- **Test Coverage**: 160 tests, 100% passing
-- **Modules**: 7 core modules + demo app
+- **Lines of Code**: ~1,400 (excluding tests, reduced through cleanup)
+- **Test Coverage**: 175 tests, 100% passing, ANSI-aware
+- **Modules**: 7 core modules + demo app + 5 examples
 - **Supported Types**: bool, int, float, []const u8, optional types
 - **Environment Variables**: Full integration with priority chain support
 - **Function-based DSL**: Zero-duplication metadata extraction
-- **Subcommand System**: Hierarchical commands with automatic type detection and depth validation
-- **Help System**: Dynamic generation with automatic flag processing
+- **Subcommand System**: True nested commands with unlimited depth and recursive parsing
+- **Help System**: Dynamic generation with automatic flag processing and command path tracking
 - **Build Time**: <2 seconds for full build + test
 - **Memory Usage**: Arena-based allocation, zero leaks, automatic cleanup
 - **API Design**: Idiomatic Zig patterns, simple and clean interface
-- **Color Support**: Cross-platform ANSI colors with smart detection
+- **Color Support**: Cross-platform ANSI colors with smart detection and test-aware stripping
 - **Terminal Features**: Colorized help, enhanced error messages, environment awareness
+- **Code Quality**: Consolidated error handling, unified type conversion, streamlined examples
 
 ## 🗺️ Development Roadmap
 
@@ -528,10 +533,21 @@ zync-cli/
 - [x] **Multilevel command organization** - Professional command patterns using descriptive naming
 - [x] **Complete multilevel example** - Demonstrates Git-style, Docker-style, and database-style CLI patterns
 
-### Planned (v0.6.0)
+### Completed (v0.6.0) - Code Quality & Reliability Improvements
+- [x] **Dead code removal** - Eliminated unused `ParseResult(T)` type and redundant functions
+- [x] **Parser logic consolidation** - Extracted `convertValueToType()` function, removed ~100 lines of duplication
+- [x] **Error handling unification** - Added `formatFlagChar()` and `createDetailedErrorWithSuggestion()` utilities
+- [x] **Example streamlining** - Merged redundant examples, enhanced `nested.zig` with comprehensive patterns
+- [x] **Test reliability fixes** - Solved ANSI color code issues causing environment-dependent test failures
+- [x] **ANSI-aware testing** - Added color code stripping for consistent cross-environment testing
+- [x] **Enhanced nested subcommands** - True recursive parsing with unlimited depth and proper help generation
+- [x] **175 comprehensive tests** - Expanded from 160 tests with full coverage of all functionality
+- [x] **Documentation updates** - Comprehensive documentation reflecting all improvements
+
+### Planned (v0.7.0)
 - [ ] Configuration file parsing (TOML/JSON)
-- [ ] Recursive category commands (nested subcommand hierarchies)
 - [ ] Multiple value support with array types
+- [ ] Advanced field validation
 
 ### Future (v1.0.0)
 - [ ] Plugin system for custom types
@@ -540,4 +556,4 @@ zync-cli/
 
 ---
 
-*Last updated: After implementing the hierarchical subcommand system with unified `command()` function and automatic type detection. The library now features Git-style CLI tools with compile-time depth validation (max 5 levels), colorized help output, and full environment variable integration for all subcommands. The system provides zero boilerplate with a single `Commands.parse()` call handling all routing and parsing. Test coverage expanded to 159/159 tests with comprehensive subcommand functionality validation. The implementation maintains backward compatibility with existing `Args()` API while adding powerful hierarchical command capabilities.*
+*Last updated: After completing comprehensive code quality improvements and reliability fixes (v0.6.0). The library now features dead code removal, parser logic consolidation (saving ~100 lines), unified error handling, streamlined examples, and ANSI-aware testing for reliable cross-environment operation. Test coverage expanded to 175/175 tests with enhanced nested subcommand support featuring true recursive parsing with unlimited depth. The codebase is now optimized for maintainability while preserving all existing functionality and backward compatibility. All tests pass reliably across different environments with proper ANSI color code handling.*

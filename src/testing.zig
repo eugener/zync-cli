@@ -7,7 +7,6 @@ const std = @import("std");
 const types = @import("types.zig");
 const parser = @import("parser.zig");
 
-const ParseResult = types.ParseResult;
 const ParseError = types.ParseError;
 
 /// Parse arguments for testing purposes
@@ -30,13 +29,6 @@ pub fn expectParseError(expected_error: ParseError, comptime T: type, args: []co
     try std.testing.expectError(expected_error, result);
 }
 
-/// Expect that parsing succeeds but generates diagnostics
-pub fn expectDiagnostics(comptime T: type, args: []const []const u8, expected_count: usize) !void {
-    var result = try parse(T, args);
-    defer result.deinit();
-    
-    try std.testing.expect(result.diagnostics.len == expected_count);
-}
 
 /// Compare two values of the same type for equality
 fn expectEqualValues(comptime T: type, expected: T, actual: T) !void {

@@ -944,14 +944,71 @@ test "subcommand help with proper usage line" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     
+    // Helper function to strip ANSI color codes for testing
+    const stripAnsiCodes = struct {
+        fn strip(allocator: std.mem.Allocator, text: []const u8) ![]const u8 {
+            var result = std.ArrayList(u8).init(allocator);
+            var i: usize = 0;
+            while (i < text.len) {
+                if (text[i] == '\x1b' and i + 1 < text.len and text[i + 1] == '[') {
+                    // Skip ANSI escape sequence
+                    i += 2;
+                    while (i < text.len and text[i] != 'm') {
+                        i += 1;
+                    }
+                    if (i < text.len) i += 1; // Skip the 'm'
+                } else {
+                    try result.append(text[i]);
+                    i += 1;
+                }
+            }
+            return result.toOwnedSlice();
+        }
+    }.strip;
+    
     // Test that subcommand help generation includes subcommand name in usage
     const help_gen = @import("help.zig");
-    const help_text = try help_gen.formatHelpWithSubcommand(ServeArgs, arena.allocator(), "testapp", ServeArgs.args_config, "serve");
     
-    // Verify that the usage line includes the subcommand name
-    try std.testing.expect(std.mem.indexOf(u8, help_text, "Usage: testapp serve [OPTIONS]") != null);
+    // Generate help text with explicit error handling
+    const help_text_raw = help_gen.formatHelpWithSubcommand(ServeArgs, arena.allocator(), "testapp", ServeArgs.args_config, "serve") catch |err| {
+        std.debug.print("Error generating help with subcommand: {}\n", .{err});
+        return err;
+    };
+    
+    // Strip ANSI color codes for testing
+    const help_text = try stripAnsiCodes(arena.allocator(), help_text_raw);
+    
+    // More robust string matching
+    const expected_usage = "Usage: testapp serve [OPTIONS]";
+    const found_usage = std.mem.indexOf(u8, help_text, expected_usage) != null;
+    if (!found_usage) {
+        std.debug.print("Expected usage line not found!\n", .{});
+        std.debug.print("Looking for: '{s}'\n", .{expected_usage});
+        std.debug.print("In text:\n{s}\n", .{help_text});
+        if (std.mem.indexOf(u8, help_text, "Usage:")) |usage_idx| {
+            const line_start = usage_idx;
+            var line_end = line_start;
+            while (line_end < help_text.len and help_text[line_end] != '\n') line_end += 1;
+            std.debug.print("Actual usage line: '{s}'\n", .{help_text[line_start..line_end]});
+        }
+    }
+    try std.testing.expect(found_usage);
     
     // Test without subcommand context for comparison
-    const help_text_normal = try help_gen.formatHelpWithSubcommand(ServeArgs, arena.allocator(), "testapp", ServeArgs.args_config, null);
-    try std.testing.expect(std.mem.indexOf(u8, help_text_normal, "Usage: testapp [OPTIONS]") != null);
+    const help_text_normal_raw = help_gen.formatHelpWithSubcommand(ServeArgs, arena.allocator(), "testapp", ServeArgs.args_config, null) catch |err| {
+        std.debug.print("Error generating normal help: {}\n", .{err});
+        return err;
+    };
+    
+    // Strip ANSI color codes for testing
+    const help_text_normal = try stripAnsiCodes(arena.allocator(), help_text_normal_raw);
+    
+    const expected_normal = "Usage: testapp [OPTIONS]";
+    const found_normal = std.mem.indexOf(u8, help_text_normal, expected_normal) != null;
+    if (!found_normal) {
+        std.debug.print("Expected normal usage line not found!\n", .{});
+        std.debug.print("Looking for: '{s}'\n", .{expected_normal});
+        std.debug.print("In text:\n{s}\n", .{help_text_normal});
+    }
+    try std.testing.expect(found_normal);
 }

@@ -44,7 +44,6 @@ pub fn build(b: *std.Build) void {
         .{ .name = "simple", .file = "examples/simple.zig" },
         .{ .name = "environment", .file = "examples/environment.zig" },
         .{ .name = "subcommands", .file = "examples/subcommands.zig" },
-        .{ .name = "multilevel", .file = "examples/multilevel.zig" },
         .{ .name = "nested", .file = "examples/nested.zig" },
     };
 

@@ -99,16 +99,6 @@ pub const Diagnostic = struct {
     };
 };
 
-/// Simple result type - no longer needed with arena allocation
-/// Kept for backward compatibility but not used in new API
-pub fn ParseResult(comptime T: type) type {
-    return struct {
-        args: T,
-        pub fn deinit(self: *@This()) void {
-            _ = self;
-        }
-    };
-}
 
 /// Field metadata extracted from encoded field names
 pub const FieldMetadata = struct {
@@ -144,21 +134,6 @@ pub const FieldMetadata = struct {
 
 
 
-test "ParseResult basic functionality" {
-    const TestArgs = struct {
-        verbose: bool = false,
-    };
-    
-    // Test creating a parse result
-    var result = ParseResult(TestArgs){
-        .args = TestArgs{ .verbose = true },
-    };
-    
-    // Test that it doesn't crash on deinit
-    result.deinit();
-    
-    try std.testing.expect(result.args.verbose == true);
-}
 
 test "Diagnostic creation" {
     const diag = Diagnostic{

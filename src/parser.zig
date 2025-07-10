@@ -195,7 +195,7 @@ fn parseShortFlag(
         } else {
             // Value in next argument
             if (index + 1 >= args.len) {
-                const flag_name = try std.fmt.allocPrint(allocator, "{c}", .{flag_char});
+                const flag_name = try formatFlagChar(allocator, flag_char);
                 const detailed_error = try createMissingValueError(flag_name, allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 return ParseError.MissingValue;
@@ -207,7 +207,7 @@ fn parseShortFlag(
             return index + 2;
         }
     } else {
-        const flag_name = try std.fmt.allocPrint(allocator, "{c}", .{flag_char});
+        const flag_name = try formatFlagChar(allocator, flag_char);
         const detailed_error = try createUnknownFlagError(T, flag_name, allocator);
         colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
         // In test mode, return error for test control
@@ -310,119 +310,72 @@ fn isFieldBoolean(comptime T: type, field: meta.FieldMetadata) bool {
 }
 
 /// Set field value from string
+/// Convert string value to the appropriate type for a field
+fn convertValueToType(comptime FieldType: type, value: []const u8, field_name: []const u8, allocator: std.mem.Allocator) !FieldType {
+    switch (FieldType) {
+        bool => {
+            return std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
+        },
+        u8, u16, u32, u64, usize => {
+            return std.fmt.parseInt(FieldType, value, 10) catch {
+                const detailed_error = try createInvalidValueError(field_name, value, "integer", allocator);
+                colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                // In test mode, return error for test control
+                if (@import("builtin").is_test) {
+                    return ParseError.InvalidValue;
+                }
+                // In normal mode, exit immediately after displaying error
+                std.process.exit(1);
+            };
+        },
+        i8, i16, i32, i64, isize => {
+            return std.fmt.parseInt(FieldType, value, 10) catch {
+                const detailed_error = try createInvalidValueError(field_name, value, "integer", allocator);
+                colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                // In test mode, return error for test control
+                if (@import("builtin").is_test) {
+                    return ParseError.InvalidValue;
+                }
+                // In normal mode, exit immediately after displaying error
+                std.process.exit(1);
+            };
+        },
+        f32, f64 => {
+            return std.fmt.parseFloat(FieldType, value) catch {
+                const detailed_error = try createInvalidValueError(field_name, value, "number", allocator);
+                colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
+                // In test mode, return error for test control
+                if (@import("builtin").is_test) {
+                    return ParseError.InvalidValue;
+                }
+                // In normal mode, exit immediately after displaying error
+                std.process.exit(1);
+            };
+        },
+        []const u8 => {
+            return try allocator.dupe(u8, value);
+        },
+        else => {
+            @compileError("Unsupported field type: " ++ @typeName(FieldType));
+        },
+    }
+}
+
 fn setFieldValue(comptime T: type, result: *T, field: meta.FieldMetadata, value: []const u8, allocator: std.mem.Allocator) !void {
     const struct_fields = std.meta.fields(T);
     
     inline for (struct_fields) |struct_field| {
-        // For positional fields, match field name directly (automatic DSL uses clean names)
-        if (field.positional) {
-            if (std.mem.eql(u8, struct_field.name, field.name)) {
-                const field_ptr = &@field(result, struct_field.name);
-                
-                switch (struct_field.type) {
-                    bool => {
-                        field_ptr.* = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
-                    },
-                    u8, u16, u32, u64, usize => {
-                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch {
-                            const detailed_error = try createInvalidValueError(field.name, value, "integer", allocator);
-                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
-                            // In test mode, return error for test control
-                            if (@import("builtin").is_test) {
-                                return ParseError.InvalidValue;
-                            }
-                            // In normal mode, exit immediately after displaying error
-                            std.process.exit(1);
-                        };
-                    },
-                    i8, i16, i32, i64, isize => {
-                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch {
-                            const detailed_error = try createInvalidValueError(field.name, value, "integer", allocator);
-                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
-                            // In test mode, return error for test control
-                            if (@import("builtin").is_test) {
-                                return ParseError.InvalidValue;
-                            }
-                            // In normal mode, exit immediately after displaying error
-                            std.process.exit(1);
-                        };
-                    },
-                    f32, f64 => {
-                        field_ptr.* = std.fmt.parseFloat(struct_field.type, value) catch {
-                            const detailed_error = try createInvalidValueError(field.name, value, "number", allocator);
-                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
-                            // In test mode, return error for test control
-                            if (@import("builtin").is_test) {
-                                return ParseError.InvalidValue;
-                            }
-                            // In normal mode, exit immediately after displaying error
-                            std.process.exit(1);
-                        };
-                    },
-                    []const u8 => {
-                        field_ptr.* = try allocator.dupe(u8, value);
-                    },
-                    else => {
-                        @compileError("Unsupported field type: " ++ @typeName(struct_field.type));
-                    },
-                }
-                return;
-            }
-        } else {
+        const matches = if (field.positional)
+            // For positional fields, match field name directly (automatic DSL uses clean names)
+            std.mem.eql(u8, struct_field.name, field.name)
+        else
             // For non-positional fields, use existing logic
-            if (std.mem.eql(u8, struct_field.name, field.name) or
-                std.mem.startsWith(u8, struct_field.name, field.name)) {
-                const field_ptr = &@field(result, struct_field.name);
-                
-                switch (struct_field.type) {
-                    bool => {
-                        field_ptr.* = std.mem.eql(u8, value, "true") or std.mem.eql(u8, value, "1");
-                    },
-                    u8, u16, u32, u64, usize => {
-                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch {
-                            const detailed_error = try createInvalidValueError(field.name, value, "integer", allocator);
-                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
-                            // In test mode, return error for test control
-                            if (@import("builtin").is_test) {
-                                return ParseError.InvalidValue;
-                            }
-                            // In normal mode, exit immediately after displaying error
-                            std.process.exit(1);
-                        };
-                    },
-                    i8, i16, i32, i64, isize => {
-                        field_ptr.* = std.fmt.parseInt(struct_field.type, value, 10) catch {
-                            const detailed_error = try createInvalidValueError(field.name, value, "integer", allocator);
-                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
-                            // In test mode, return error for test control
-                            if (@import("builtin").is_test) {
-                                return ParseError.InvalidValue;
-                            }
-                            // In normal mode, exit immediately after displaying error
-                            std.process.exit(1);
-                        };
-                    },
-                    f32, f64 => {
-                        field_ptr.* = std.fmt.parseFloat(struct_field.type, value) catch {
-                            const detailed_error = try createInvalidValueError(field.name, value, "number", allocator);
-                            colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
-                            // In test mode, return error for test control
-                            if (@import("builtin").is_test) {
-                                return ParseError.InvalidValue;
-                            }
-                            // In normal mode, exit immediately after displaying error
-                            std.process.exit(1);
-                        };
-                    },
-                    []const u8 => {
-                        field_ptr.* = try allocator.dupe(u8, value);
-                    },
-                    else => {
-                        @compileError("Unsupported field type: " ++ @typeName(struct_field.type));
-                    },
-                }
-                return;
-            }
+            std.mem.eql(u8, struct_field.name, field.name) or std.mem.startsWith(u8, struct_field.name, field.name);
+            
+        if (matches) {
+            const field_ptr = &@field(result, struct_field.name);
+            field_ptr.* = try convertValueToType(struct_field.type, value, field.name, allocator);
+            return;
         }
     }
 }
@@ -622,6 +575,29 @@ fn findSuggestions(comptime T: type, unknown_flag: []const u8, allocator: std.me
     return suggestions.toOwnedSlice();
 }
 
+/// Utility function to format a single character flag name
+fn formatFlagChar(allocator: std.mem.Allocator, flag_char: u8) ![]const u8 {
+    return std.fmt.allocPrint(allocator, "{c}", .{flag_char});
+}
+
+/// Create a detailed error with a formatted suggestion
+fn createDetailedErrorWithSuggestion(
+    error_type: ParseError,
+    message: []const u8,
+    context: ?[]const u8,
+    allocator: std.mem.Allocator,
+    comptime suggestion_fmt: []const u8,
+    suggestion_args: anytype,
+) !types.DetailedParseError {
+    const suggestion = try std.fmt.allocPrint(allocator, suggestion_fmt, suggestion_args);
+    return types.DetailedParseError{
+        .error_type = error_type,
+        .message = message,
+        .context = context,
+        .suggestion = suggestion,
+    };
+}
+
 /// Create detailed error message for unknown flag
 fn createUnknownFlagError(comptime T: type, flag: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
     const suggestions = try findSuggestions(T, flag, allocator);
@@ -649,24 +625,26 @@ fn createMissingValueError(flag: []const u8, allocator: std.mem.Allocator) !type
 /// Create detailed error message for invalid value
 fn createInvalidValueError(flag: []const u8, value: []const u8, expected_type: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
     _ = value; // Not currently used but may be useful for logging
-    const suggestion = try std.fmt.allocPrint(allocator, "Expected {s} value for flag", .{expected_type});
-    return types.DetailedParseError{
-        .error_type = ParseError.InvalidValue,
-        .message = "Invalid value for flag",
-        .context = flag,
-        .suggestion = suggestion,
-    };
+    return createDetailedErrorWithSuggestion(
+        ParseError.InvalidValue,
+        "Invalid value for flag",
+        flag,
+        allocator,
+        "Expected {s} value for flag",
+        .{expected_type},
+    );
 }
 
 /// Create detailed error message for missing required argument
 fn createMissingRequiredError(field_name: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
-    const suggestion = try std.fmt.allocPrint(allocator, "The --{s} flag is required", .{field_name});
-    return types.DetailedParseError{
-        .error_type = ParseError.MissingRequiredArgument,
-        .message = "Missing required argument",
-        .context = field_name,
-        .suggestion = suggestion,
-    };
+    return createDetailedErrorWithSuggestion(
+        ParseError.MissingRequiredArgument,
+        "Missing required argument",
+        field_name,
+        allocator,
+        "The --{s} flag is required",
+        .{field_name},
+    );
 }
 
 test "parse simple arguments" {
