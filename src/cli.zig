@@ -175,7 +175,83 @@ pub const CommandConfig = struct {
     title: ?[]const u8 = null,
     description: ?[]const u8 = null,
     hidden: bool = false,
+    handler: ?*const anyopaque = null,
 };
+
+/// Convert any config struct to CommandConfig, handling function conversion automatically
+fn convertConfig(comptime config: anytype) CommandConfig {
+    const ConfigType = @TypeOf(config);
+    const config_info = @typeInfo(ConfigType);
+    
+    if (config_info != .@"struct") {
+        @compileError("Config must be a struct");
+    }
+    
+    var result = CommandConfig{};
+    
+    // Copy known fields and handle handler conversion
+    inline for (config_info.@"struct".fields) |field| {
+        const field_value = @field(config, field.name);
+        
+        if (std.mem.eql(u8, field.name, "help")) {
+            result.help = field_value;
+        } else if (std.mem.eql(u8, field.name, "title")) {
+            result.title = field_value;
+        } else if (std.mem.eql(u8, field.name, "description")) {
+            result.description = field_value;
+        } else if (std.mem.eql(u8, field.name, "hidden")) {
+            result.hidden = field_value;
+        } else if (std.mem.eql(u8, field.name, "handler")) {
+            const handler_info = @typeInfo(@TypeOf(field_value));
+            switch (handler_info) {
+                .@"fn" => {
+                    result.handler = @as(*const anyopaque, @ptrCast(&field_value));
+                },
+                .pointer => |ptr_info| {
+                    if (ptr_info.size == .One) {
+                        const pointee_info = @typeInfo(ptr_info.child);
+                        if (pointee_info == .@"fn") {
+                            result.handler = @as(*const anyopaque, @ptrCast(field_value));
+                        } else {
+                            result.handler = field_value; // Already converted
+                        }
+                    } else {
+                        result.handler = field_value;
+                    }
+                },
+                .optional => |opt_info| {
+                    // Handle optional handlers (including null)
+                    if (field_value == null) {
+                        result.handler = null;
+                    } else {
+                        const inner_info = @typeInfo(opt_info.child);
+                        if (inner_info == .@"fn") {
+                            result.handler = @as(*const anyopaque, @ptrCast(&field_value.?));
+                        } else {
+                            result.handler = field_value;
+                        }
+                    }
+                },
+                .@"null" => {
+                    // Handle null literal
+                    result.handler = null;
+                },
+                else => {
+                    result.handler = field_value;
+                },
+            }
+        }
+    }
+    
+    return result;
+}
+
+/// Handler function type for leaf commands
+pub fn HandlerFn(comptime ArgsType: type) type {
+    return *const fn(ArgsType.ArgsType, std.mem.Allocator) anyerror!void;
+}
+
+
 
 /// Command definition - either a leaf command (with Args) or a category command (with subcommands)
 pub fn CommandDef(comptime T: type) type {
@@ -189,6 +265,9 @@ pub fn CommandDef(comptime T: type) type {
             leaf: type, // Args type
             category: type, // Array of subcommands
         },
+        
+        // Optional handler function for leaf commands
+        handler: ?*const anyopaque = null,
         
         // Store the original type for reference
         original_type: type = T,
@@ -225,14 +304,37 @@ pub fn CommandDef(comptime T: type) type {
             }
             return self.data.category;
         }
+        
+        /// Check if this command has a handler function
+        pub fn hasHandler(self: Self) bool {
+            return self.handler != null;
+        }
+        
+        /// Execute the handler function with parsed arguments
+        pub fn executeHandler(self: Self, args: anytype, allocator: std.mem.Allocator) !void {
+            if (self.handler == null) {
+                return; // No handler to execute
+            }
+            
+            if (self.command_type != .leaf) {
+                @compileError("executeHandler() can only be called on leaf commands");
+            }
+            
+            const ArgsType = self.data.leaf;
+            const handler_fn = @as(HandlerFn(ArgsType), @ptrCast(@alignCast(self.handler.?)));
+            try handler_fn(args, allocator);
+        }
     };
 }
 
 /// Create a unified command definition that automatically detects leaf vs category commands
 /// Usage: 
-///   command("serve", Args(...), .{ .help = "Start the server" })  // Leaf command
+///   command("serve", Args(...), .{ .help = "Start the server" })  // Leaf command without handler
+///   command("serve", Args(...), .{ .help = "Start the server", .handler = myHandler })  // Leaf command with handler (automatic conversion)
 ///   command("git", &.{ ... subcommands ... }, .{ .help = "Git operations" })  // Category command
-pub fn command(comptime name: []const u8, comptime command_data: anytype, comptime config: CommandConfig) CommandDef(@TypeOf(command_data)) {
+pub fn command(comptime name: []const u8, comptime command_data: anytype, comptime config: anytype) CommandDef(@TypeOf(command_data)) {
+    // Convert the config to proper CommandConfig, handling automatic function conversion
+    const converted_config = convertConfig(config);
     const T = @TypeOf(command_data);
     const type_info = @typeInfo(T);
     
@@ -277,15 +379,25 @@ pub fn command(comptime name: []const u8, comptime command_data: anytype, compti
         @compileError("command() expects either an Args type, Commands type, or an array of subcommands");
     };
     
+    // Validate handler type if provided in config
+    const handler_ptr = if (converted_config.handler == null) null else blk: {
+        if (command_type != .leaf) {
+            @compileError("Handlers can only be used with leaf commands (Args types)");
+        }
+        // Handler is already converted to *const anyopaque, so we can use it directly
+        break :blk converted_config.handler;
+    };
+    
     return CommandDef(T){
         .command_name = name,
-        .config = config,
+        .config = converted_config,
         .command_type = command_type,
         .data = switch (command_type) {
             .leaf => .{ .leaf = command_data },
             .category => .{ .category = command_data },
             else => @compileError("Invalid command type detected"),
         },
+        .handler = handler_ptr,
     };
 }
 
@@ -447,7 +559,10 @@ pub fn Commands(comptime commands: anytype) type {
                             },
                             else => return err,
                         };
-                        _ = parsed_args; // TODO: Execute command with parsed args
+                        // Execute handler if present
+                        if (cmd.hasHandler()) {
+                            try cmd.executeHandler(parsed_args, allocator);
+                        }
                         return;
                     } else {
                         // Navigate to category command - delegate to its Commands system with path
@@ -1011,4 +1126,84 @@ test "subcommand help with proper usage line" {
         std.debug.print("In text:\n{s}\n", .{help_text_normal});
     }
     try std.testing.expect(found_normal);
+}
+
+test "command handler functionality" {
+    const TestArgs = Args(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+        option("name", []const u8, .{ .short = 'n', .default = "test", .help = "Name to use" }),
+    });
+    
+    // Create a test handler that sets a flag (using a global variable for testing)
+    const TestState = struct {
+        var handler_called: bool = false;
+        
+        fn handle(args: TestArgs.ArgsType, allocator: std.mem.Allocator) !void {
+            _ = allocator;
+            _ = args;
+            handler_called = true;
+        }
+    };
+    
+    // Reset the test state
+    TestState.handler_called = false;
+    
+    // Create a command with handler
+    const test_cmd = command("test", TestArgs, .{ .help = "Test command", .handler = TestState.handle });
+    
+    // Test command properties
+    try std.testing.expectEqualStrings(test_cmd.command_name, "test");
+    try std.testing.expect(test_cmd.command_type == .leaf);
+    try std.testing.expect(test_cmd.hasHandler() == true);
+    try std.testing.expect(test_cmd.data.leaf == TestArgs);
+    
+    // Test handler execution
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = TestArgs.ArgsType{ .verbose = true, .name = "Alice" };
+    try test_cmd.executeHandler(test_args, arena.allocator());
+    
+    try std.testing.expect(TestState.handler_called == true);
+}
+
+test "command without handler" {
+    const TestArgs = Args(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
+    
+    // Create a command without handler (using regular command function)
+    const test_cmd = command("test", TestArgs, .{ .help = "Test command without handler" });
+    
+    // Test command properties
+    try std.testing.expectEqualStrings(test_cmd.command_name, "test");
+    try std.testing.expect(test_cmd.command_type == .leaf);
+    try std.testing.expect(test_cmd.hasHandler() == false);
+    try std.testing.expect(test_cmd.data.leaf == TestArgs);
+    
+    // Test that executeHandler does nothing when no handler is present
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    const test_args = TestArgs.ArgsType{ .verbose = true };
+    // This should not error and should do nothing
+    try test_cmd.executeHandler(test_args, arena.allocator());
+}
+
+test "handler function type validation" {
+    const TestArgs = Args(&.{
+        flag("verbose", .{ .short = 'v', .help = "Enable verbose output" }),
+    });
+    
+    // Valid handler function
+    const validHandler = struct {
+        fn handle(args: TestArgs.ArgsType, allocator: std.mem.Allocator) !void {
+            _ = args;
+            _ = allocator;
+        }
+    }.handle;
+    
+    // This should compile successfully
+    const test_cmd = command("test", TestArgs, .{ .help = "Test command", .handler = validHandler });
+    try std.testing.expect(test_cmd.hasHandler() == true);
 }

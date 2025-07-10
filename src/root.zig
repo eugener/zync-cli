@@ -48,6 +48,7 @@ pub const Commands = cli.Commands;
 pub const command = cli.command;
 pub const CommandConfig = cli.CommandConfig;
 pub const CommandDef = cli.CommandDef;
+pub const HandlerFn = cli.HandlerFn;
 
 // Export configuration types
 pub const FlagConfig = cli.FlagConfig;

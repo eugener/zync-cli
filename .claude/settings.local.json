@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(zig build:*)",
-      "Bash(zig test:*)"
+      "Bash(zig test:*)",
+      "Bash(find:*)",
+      "Bash(rg:*)",
+      "Bash(grep:*)",
+      "Bash(ZYNC_NAME=Alice ZYNC_COUNT=3 ZYNC_CONFIG=env.conf zig build run)",
+      "Bash(zig run:*)"
     ],
     "deny": []
   }
