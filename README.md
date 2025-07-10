@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-156%2F156%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-160%2F160%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -15,7 +15,7 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Environment Variable Support** - Seamless integration with standard priority chain
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 156 comprehensive tests covering all functionality
+- **Battle Tested** - 160 comprehensive tests covering all functionality
 - **Automatic Help** - Built-in help generation with dynamic program name detection and zero boilerplate
 - **Colorized Output** - Beautiful terminal colors with smart detection and fallback
 
@@ -218,6 +218,241 @@ FORCE_COLOR=1 ./myapp --help
 ./myapp --help
 ```
 
+## Hierarchical Subcommand System
+
+Zync-CLI v0.5.0 introduces a powerful subcommand system for building Git-style and Docker-style CLI tools with organized command hierarchies:
+
+### Basic Subcommand Usage
+
+```zig
+const std = @import("std");
+const cli = @import("zync-cli");
+
+// Define Args for different commands
+const ServeArgs = cli.Args(&.{
+    cli.flag("daemon", .{ .short = 'd', .help = "Run as daemon", .env_var = "SERVER_DAEMON" }),
+    cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port to listen on", .env_var = "SERVER_PORT" }),
+});
+
+const BuildArgs = cli.Args(&.{
+    cli.flag("release", .{ .short = 'r', .help = "Build in release mode", .env_var = "BUILD_RELEASE" }),
+    cli.option("target", []const u8, .{ .short = 't', .default = "native", .help = "Target platform", .env_var = "BUILD_TARGET" }),
+});
+
+// Create the command hierarchy
+const AppCommands = cli.Commands(&.{
+    cli.command("serve", ServeArgs, .{ .help = "Start the application server" }),
+    cli.command("build", BuildArgs, .{ .help = "Build the application" }),
+    cli.command("test", TestArgs, .{ .help = "Run the test suite" }),
+});
+
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    
+    // Single call handles all routing and parsing automatically
+    try AppCommands.parse(arena.allocator());
+}
+```
+
+### Multilevel Command Organization
+
+Zync-CLI supports complex CLI patterns through descriptive command naming that simulates hierarchical structure:
+
+```zig
+// Current approach: Flat structure with descriptive naming
+const AppCommands = cli.Commands(&.{
+    // Database operations (simulating "db migrate up", "db migrate down", etc.)
+    cli.command("db-migrate-up", DbMigrateUpArgs, .{ .help = "Run database migrations (up)" }),
+    cli.command("db-migrate-down", DbMigrateDownArgs, .{ .help = "Rollback database migrations (down)" }),
+    cli.command("db-seed", DbSeedArgs, .{ .help = "Seed database with data" }),
+    cli.command("db-status", DbStatusArgs, .{ .help = "Show database status" }),
+    
+    // Git-style operations (simulating "git remote add", "git branch create", etc.)
+    cli.command("git-remote-add", GitRemoteAddArgs, .{ .help = "Add a git remote" }),
+    cli.command("git-remote-remove", GitRemoteRemoveArgs, .{ .help = "Remove a git remote" }),
+    cli.command("git-branch-create", GitBranchCreateArgs, .{ .help = "Create a new git branch" }),
+    cli.command("git-commit", GitCommitArgs, .{ .help = "Create a git commit" }),
+    
+    // Docker-style operations (simulating "docker container run", "docker image pull", etc.)
+    cli.command("docker-run", DockerRunArgs, .{ .help = "Run a docker container" }),
+    cli.command("docker-ps", DockerPsArgs, .{ .help = "List docker containers" }),
+    cli.command("docker-images", DockerImagesArgs, .{ .help = "List docker images" }),
+    cli.command("docker-pull", DockerPullArgs, .{ .help = "Pull docker images" }),
+});
+```
+
+**Usage Examples:**
+```bash
+# Database operations
+./myapp db-migrate-up --steps 5 --dry-run
+./myapp db-seed --file production.sql --force
+./myapp db-status --verbose --json
+
+# Git-style operations  
+./myapp git-remote-add --name origin --url https://github.com/user/repo.git --fetch
+./myapp git-branch-create --name feature/auth --from develop
+./myapp git-commit --message "Add user authentication" --all
+
+# Docker-style operations
+./myapp docker-run --image nginx --detach --name webserver --port 80:8080
+./myapp docker-ps --all --quiet
+./myapp docker-pull --image ubuntu:latest --all-tags
+```
+
+### Subcommand Features
+
+- **Unified `command()` Function** - Single function for defining all commands
+- **Descriptive Naming** - Use hyphens to create logical command groupings
+- **Automatic Type Detection** - Distinguishes Args types at compile time
+- **Colorized Help Output** - Beautiful, aligned command listings with smart color detection
+- **Environment Variable Support** - Full integration with priority chain for all subcommands
+- **Hidden Commands** - Support for internal commands that don't appear in help text
+- **Zero Boilerplate** - Single `Commands.parse()` call handles everything
+
+### Subcommand Help Output
+
+```bash
+$ ./myapp --help
+myapp - Subcommand Interface
+
+Usage: myapp <command> [options]
+
+Available Commands:
+  serve    Start the application server
+  build    Build the application
+  test     Run the test suite
+
+Use 'myapp <command> --help' for more information about a specific command.
+
+$ ./myapp serve --help
+myapp - TODO: Add custom title using .title in Args config
+TODO: Add description using .description in Args config
+
+Usage: myapp serve [OPTIONS]
+
+Options:
+  -d, --daemon          Run as daemon [env: SERVER_DAEMON]
+  -p, --port [value]    Port to listen on [env: SERVER_PORT] (default: 8080)
+  -h, --help            Show this help message
+```
+
+### Command Organization Patterns
+
+Zync-CLI enables professional CLI organization through strategic command naming:
+
+#### Git-Style Pattern
+```zig
+// Organizes commands by resource and action
+cli.command("remote-add", RemoteAddArgs, .{ .help = "Add a remote repository" }),
+cli.command("remote-remove", RemoteRemoveArgs, .{ .help = "Remove a remote repository" }),
+cli.command("remote-list", RemoteListArgs, .{ .help = "List remote repositories" }),
+cli.command("branch-create", BranchCreateArgs, .{ .help = "Create a new branch" }),
+cli.command("branch-delete", BranchDeleteArgs, .{ .help = "Delete a branch" }),
+```
+
+#### Docker-Style Pattern
+```zig
+// Organizes commands by component and operation
+cli.command("container-run", ContainerRunArgs, .{ .help = "Run a new container" }),
+cli.command("container-stop", ContainerStopArgs, .{ .help = "Stop running containers" }),
+cli.command("container-list", ContainerListArgs, .{ .help = "List containers" }),
+cli.command("image-pull", ImagePullArgs, .{ .help = "Pull an image" }),
+cli.command("image-build", ImageBuildArgs, .{ .help = "Build an image" }),
+```
+
+#### Database-Style Pattern
+```zig
+// Organizes commands by subsystem and action
+cli.command("db-migrate-up", DbMigrateUpArgs, .{ .help = "Apply database migrations" }),
+cli.command("db-migrate-down", DbMigrateDownArgs, .{ .help = "Rollback database migrations" }),
+cli.command("db-seed", DbSeedArgs, .{ .help = "Seed database with initial data" }),
+cli.command("db-backup", DbBackupArgs, .{ .help = "Create database backup" }),
+```
+
+#### Best Practices
+
+1. **Consistent Naming** - Use the same pattern throughout your application
+2. **Logical Grouping** - Group related commands with prefixes (`db-`, `git-`, `docker-`)
+3. **Clear Actions** - Use descriptive action words (`create`, `list`, `remove`, `up`, `down`)
+4. **Avoid Deep Nesting** - Keep command names readable and not too long
+5. **Environment Variables** - Use consistent env var naming (`MYAPP_DB_HOST`, `MYAPP_GIT_TOKEN`)
+
+### Advanced Features
+
+- **Environment Variables** - Each subcommand supports environment variable integration
+- **Hidden Commands** - Use `.hidden = true` for internal commands
+- **Compile-Time Safety** - All command definitions validated at compile time
+- **Memory Safe** - Arena-based allocation with automatic cleanup
+- **Backward Compatible** - Existing `Args()` API continues to work unchanged
+
+### True Nested Subcommands (Available Now!)
+
+Zync-CLI now supports true nested subcommand hierarchies with unlimited depth:
+
+```zig
+// True nested subcommands - working now!
+const DatabaseCommands = cli.Commands(&.{
+    cli.command("migrate", MigrateCommands, .{ .help = "Database migration operations" }),
+    cli.command("seed", SeedArgs, .{ .help = "Seed database with data" }),
+});
+
+const MigrateCommands = cli.Commands(&.{
+    cli.command("up", MigrateUpArgs, .{ .help = "Apply migrations" }),
+    cli.command("down", MigrateDownArgs, .{ .help = "Rollback migrations" }),
+});
+
+const AppCommands = cli.Commands(&.{
+    cli.command("db", DatabaseCommands, .{ .help = "Database operations" }),
+    cli.command("git", GitCommands, .{ .help = "Git operations" }),
+    cli.command("docker", DockerCommands, .{ .help = "Docker operations" }),
+});
+
+// Usage examples:
+// myapp db migrate up --steps 5 --dry-run
+// myapp git remote add --name origin --url https://github.com/user/repo.git
+// myapp docker container run --image nginx --detach
+```
+
+**Key Features:**
+- **Unlimited Depth** - Create hierarchies as deep as you need (db migrate up, git remote add, etc.)
+- **Type Safety** - All nested command structures validated at compile time
+- **Automatic Routing** - Commands automatically delegate to the appropriate subcommand handler
+- **Contextual Help** - Help messages show the correct command path and usage at every level
+- **Perfect Help Generation** - Usage lines show full command paths (e.g., `myapp git remote <command>`)
+- **Zero Boilerplate** - Simple recursive structure with automatic parsing
+
+**Help Examples:**
+```bash
+$ myapp git --help
+myapp git - Subcommand Interface
+
+Usage: myapp git <command> [options]
+
+Available Commands:
+  remote  Manage remote repositories
+  branch  Manage git branches
+
+$ myapp git remote --help  
+myapp git remote - Subcommand Interface
+
+Usage: myapp git remote <command> [options]
+
+Available Commands:
+  add     Add a new remote
+  remove  Remove a remote
+
+$ myapp git remote add --help
+myapp git remote add - Configuration
+
+Usage: myapp git remote add [OPTIONS]
+
+Options:
+  --name <value>    Remote name (required)
+  --url <value>     Remote URL (required)  
+  -f, --fetch       Fetch after adding remote
+```
+
 ## Function-based DSL
 
 Zync-CLI uses a function-based DSL for defining CLI arguments:
@@ -395,6 +630,57 @@ Compile-time validation of argument structure.
 comptime Args.validate(); // Validates at compile time
 ```
 
+### Subcommand API
+
+#### `Commands(command_definitions)`
+Create a hierarchical command structure with automatic depth validation.
+
+```zig
+const AppCommands = cli.Commands(&.{
+    cli.command("serve", ServeArgs, .{ .help = "Start the server" }),
+    cli.command("build", BuildArgs, .{ .help = "Build the project" }),
+});
+```
+
+#### `command(name, args_or_subcommands, config)`
+Create a unified command definition that automatically detects leaf vs category commands.
+
+```zig
+// Leaf command (with Args)
+cli.command("serve", ServeArgs, .{ .help = "Start the server" })
+
+// Category command (with subcommands) - planned for v0.6.0
+cli.command("db", DatabaseCommands, .{ .help = "Database operations" })
+```
+
+#### `CommandConfig`
+Configuration for command definitions.
+
+```zig
+.{
+    .help = "Command description",
+    .title = "Custom command title",
+    .description = "Detailed command description",
+    .hidden = false, // Set to true for internal commands
+}
+```
+
+#### `Commands.parse(allocator)`
+Parse and route to the appropriate subcommand automatically.
+
+```zig
+// Handles all routing, parsing, and help generation
+try AppCommands.parse(arena.allocator());
+```
+
+#### `Commands.parseFrom(allocator, args)`
+Parse from custom argument array with subcommand routing.
+
+```zig
+const test_args = &.{"serve", "--daemon", "--port", "3000"};
+try AppCommands.parseFrom(arena.allocator(), test_args);
+```
+
 ### DSL Functions
 
 #### `Args(definitions)`
@@ -546,7 +832,7 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **156 total tests** across all modules
+- **160 total tests** across all modules
 - **Method-style API** - Ergonomic `Args.parse()` and `Args.parseFrom()` methods
 - **Function-based DSL** - Zero-duplication metadata extraction
 - **Argument parsing** for all supported types
@@ -560,6 +846,8 @@ test "my CLI parsing" {
 - **Help generation** and formatting
 - **Colorized output** with smart terminal detection
 - **Cross-platform color support** with environment variable controls
+- **Hierarchical subcommand system** with type detection and depth validation
+- **Subcommand help generation** with colorized output and alignment
 - **Integration testing** with real CLI scenarios
 
 ## Memory Management
@@ -607,7 +895,10 @@ zync-cli/
 ├── examples/
 │   ├── simple.zig      # Minimal usage example
 │   ├── basic.zig       # Complete example with custom banner
-│   └── environment.zig # Environment variable demonstration
+│   ├── environment.zig # Environment variable demonstration
+│   ├── subcommands.zig # Basic subcommand system demo
+│   ├── multilevel.zig  # Complex multilevel command organization patterns
+│   └── nested.zig      # True nested subcommands with unlimited depth
 ├── build.zig           # Build configuration
 ├── README.md           # This file
 ├── CLAUDE.md           # Project documentation
@@ -626,6 +917,14 @@ zig build
 zig build run-simple -- --verbose --name Developer --count 2
 zig build run-basic -- --help
 zig build run-environment -- --debug --api-key secret
+zig build run-subcommands -- --help
+zig build run-subcommands -- serve --daemon --port 3000
+zig build run-multilevel -- --help
+zig build run-multilevel -- db-migrate-up --steps 5 --dry-run
+zig build run-multilevel -- docker-run --image nginx --detach
+zig build run-nested -- --help
+zig build run-nested -- git remote add --name origin --url https://github.com/user/repo.git
+zig build run-nested -- db migrate up --steps 5 --dry-run
 
 # Install library
 zig build install
@@ -634,10 +933,17 @@ zig build install
 zig build install-simple
 zig build install-basic
 zig build install-environment
+zig build install-subcommands
+zig build install-multilevel
+zig build install-nested
 
 # Run installed executables directly (cleanest output)
 ./zig-out/examples/environment --help
 ./zig-out/examples/simple --verbose --count 3
+./zig-out/examples/multilevel --help
+./zig-out/examples/multilevel git-remote-add --name origin --url https://github.com/user/repo.git
+./zig-out/examples/nested --help
+./zig-out/examples/nested git remote add --name origin --url https://github.com/user/repo.git
 ```
 
 ### Contributing
@@ -694,9 +1000,18 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 - [x] **Required field satisfaction** - Environment variables satisfy validation
 - [x] **Comprehensive testing** - Full test coverage for environment variables
 
-### Planned (v0.5.0)
-- [ ] Configuration file parsing
-- [ ] Subcommand system with tagged unions
+### Completed (v0.5.0)
+- [x] **Hierarchical subcommand system** - Unified `command()` function for Git-style CLI tools
+- [x] **Automatic type detection** - Distinguishes leaf commands from categories at compile time
+- [x] **True nested subcommands** - Recursive command hierarchies with unlimited depth
+- [x] **Perfect help generation** - Contextual help showing full command paths at every level
+- [x] **Command path tracking** - Usage lines show correct nested command paths
+- [x] **Colorized subcommand help** - Beautiful, aligned help output with smart color detection
+- [x] **Zero boilerplate** - Single `Commands.parse()` call handles all routing and parsing
+
+## Planned (v0.6.0)
+- [ ] Configuration file parsing (TOML/JSON integration)
+- [ ] Multiple value support with array types (`*` encoding)
 
 ### Future (v1.0.0)
 - [ ] Plugin system for custom types

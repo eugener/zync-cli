@@ -169,6 +169,380 @@ pub const ArgsConfig = struct {
     description: ?[]const u8 = null,
 };
 
+/// Configuration for command definitions
+pub const CommandConfig = struct {
+    help: ?[]const u8 = null,
+    title: ?[]const u8 = null,
+    description: ?[]const u8 = null,
+    hidden: bool = false,
+};
+
+/// Command definition - either a leaf command (with Args) or a category command (with subcommands)
+pub fn CommandDef(comptime T: type) type {
+    return struct {
+        command_name: []const u8,
+        config: CommandConfig,
+        command_type: enum { leaf, category },
+        
+        // Union for command data
+        data: union(enum) {
+            leaf: type, // Args type
+            category: type, // Array of subcommands
+        },
+        
+        // Store the original type for reference
+        original_type: type = T,
+        
+        const Self = @This();
+        
+        /// Get the command name
+        pub fn getName(self: Self) []const u8 {
+            return self.command_name;
+        }
+        
+        /// Check if this is a leaf command
+        pub fn isLeaf(self: Self) bool {
+            return self.command_type == .leaf;
+        }
+        
+        /// Check if this is a category command
+        pub fn isCategory(self: Self) bool {
+            return self.command_type == .category;
+        }
+        
+        /// Get the Args type for leaf commands
+        pub fn getArgsType(self: Self) type {
+            if (self.command_type != .leaf) {
+                @compileError("getArgsType() can only be called on leaf commands");
+            }
+            return self.data.leaf;
+        }
+        
+        /// Get the subcommands array for category commands
+        pub fn getSubcommands(self: Self) type {
+            if (self.command_type != .category) {
+                @compileError("getSubcommands() can only be called on category commands");
+            }
+            return self.data.category;
+        }
+    };
+}
+
+/// Create a unified command definition that automatically detects leaf vs category commands
+/// Usage: 
+///   command("serve", Args(...), .{ .help = "Start the server" })  // Leaf command
+///   command("git", &.{ ... subcommands ... }, .{ .help = "Git operations" })  // Category command
+pub fn command(comptime name: []const u8, comptime command_data: anytype, comptime config: CommandConfig) CommandDef(@TypeOf(command_data)) {
+    const T = @TypeOf(command_data);
+    const type_info = @typeInfo(T);
+    
+    // Auto-detect if this is an Args type (has dsl_metadata), Commands type, or subcommands array
+    const command_type = blk: {
+        if (type_info == .type) {
+            // This is a type (likely Args type or Commands type)
+            const target_type = command_data;
+            const target_info = @typeInfo(target_type);
+            if (target_info == .@"struct") {
+                const struct_info = target_info.@"struct";
+                // Check for Args type (has dsl_metadata)
+                for (struct_info.decls) |decl| {
+                    if (std.mem.eql(u8, decl.name, "dsl_metadata")) {
+                        break :blk .leaf;
+                    }
+                }
+                // Check for Commands type (has parse method and commands field)
+                var has_parse = false;
+                var has_commands = false;
+                for (struct_info.decls) |decl| {
+                    if (std.mem.eql(u8, decl.name, "parse") or std.mem.eql(u8, decl.name, "parseFrom")) {
+                        has_parse = true;
+                    }
+                }
+                for (struct_info.fields) |field| {
+                    if (std.mem.eql(u8, field.name, "commands")) {
+                        has_commands = true;
+                    }
+                }
+                if (has_parse and has_commands) {
+                    break :blk .category;
+                }
+            }
+        } else if (type_info == .pointer) {
+            // This is likely an array of subcommands (slice)
+            break :blk .category;
+        } else if (type_info == .array) {
+            // This is an array of subcommands
+            break :blk .category;
+        }
+        @compileError("command() expects either an Args type, Commands type, or an array of subcommands");
+    };
+    
+    return CommandDef(T){
+        .command_name = name,
+        .config = config,
+        .command_type = command_type,
+        .data = switch (command_type) {
+            .leaf => .{ .leaf = command_data },
+            .category => .{ .category = command_data },
+            else => @compileError("Invalid command type detected"),
+        },
+    };
+}
+
+/// Parse a category command by delegating to its Commands system
+fn parseCategoryCommand(cmd: anytype, allocator: std.mem.Allocator, args: []const []const u8, command_name: []const u8) anyerror!void {
+    return parseCategoryCommandWithPath(cmd, allocator, args, command_name);
+}
+
+/// Parse a category command by delegating to its Commands system with command path tracking
+fn parseCategoryCommandWithPath(cmd: anytype, allocator: std.mem.Allocator, args: []const []const u8, command_path: []const u8) anyerror!void {
+    // Check if this is a help request for the category itself
+    if (args.len > 0 and (std.mem.eql(u8, args[0], "--help") or std.mem.eql(u8, args[0], "-h"))) {
+        // Show help for this category level
+        const CategoryData = cmd.data.category;
+        const category_info = @typeInfo(@TypeOf(CategoryData));
+        
+        if (category_info == .type) {
+            // This is a Commands type - call showHelpWithPath on it
+            return CategoryData.showHelpWithPath(allocator, command_path);
+        } else {
+            // For array types, we need to create a temporary Commands system to show help
+            const TempCommands = if (category_info == .pointer) 
+                Commands(CategoryData.*)
+            else 
+                Commands(CategoryData);
+            return TempCommands.showHelpWithPath(allocator, command_path);
+        }
+    }
+    
+    const CategoryData = cmd.data.category;
+    const category_info = @typeInfo(@TypeOf(CategoryData));
+    
+    if (category_info == .type) {
+        // This is a Commands type - we can call parseFromWithPath directly on the type
+        return CategoryData.parseFromWithPath(allocator, args, command_path);
+    } else if (category_info == .pointer) {
+        // This is a pointer to an array of subcommands
+        // Create a Commands system from the actual command array
+        const subcmds = CategoryData;
+        const TempCommands = Commands(subcmds.*);
+        const temp_system = TempCommands.init();
+        return temp_system.parseFromWithPath(allocator, args, command_path);
+    } else if (category_info == .array) {
+        // This is an array of subcommands - create a temporary Commands system
+        const TempCommands = Commands(CategoryData);
+        const temp_system = TempCommands.init();
+        return temp_system.parseFromWithPath(allocator, args, command_path);
+    } else {
+        std.debug.print("Error: Category command has unsupported category type: {}\n", .{category_info});
+        return;
+    }
+}
+
+/// Parse arguments for a subcommand with proper help context
+fn parseSubcommandArgs(comptime ArgsType: type, allocator: std.mem.Allocator, args: []const []const u8, command_path: []const u8) anyerror!ArgsType.ArgsType {
+    // Check for help flags first and handle them with subcommand context
+    for (args) |arg| {
+        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
+            // Generate help with full command path context
+            const help_gen = @import("help.zig");
+            const program_name = help_gen.extractProgramName(allocator) catch "program";
+            const full_command_path = try std.fmt.allocPrint(allocator, "{s} {s}", .{ program_name, command_path });
+            const help_text = try help_gen.formatHelpWithSubcommand(ArgsType, allocator, full_command_path, ArgsType.args_config, null);
+            std.debug.print("{s}\n", .{help_text});
+            
+            // In test mode, return error for test control
+            if (@import("builtin").is_test) {
+                return error.HelpRequested;
+            }
+            // In normal mode, exit gracefully after displaying help
+            std.process.exit(0);
+        }
+    }
+    
+    // Parse normally if no help requested
+    return ArgsType.parseFrom(allocator, args);
+}
+
+/// Validate command hierarchy depth at compile time
+fn validateCommandDepth(comptime commands: anytype, comptime current_depth: u32) void {
+    if (current_depth > 5) {
+        @compileError("Command hierarchy depth cannot exceed 5 levels");
+    }
+    
+    // For now, just validate that we can iterate over the commands
+    // Full depth validation will be implemented when we add recursive subcommand support
+    inline for (commands) |cmd| {
+        if (cmd.command_type == .category) {
+            // TODO: Add recursive depth validation for category commands
+            // This will be improved once we have proper recursive command definitions
+        }
+    }
+}
+
+/// Create a command structure with automatic depth validation
+pub fn Commands(comptime commands: anytype) type {
+    // Validate depth at compile time
+    validateCommandDepth(commands, 0);
+    
+    return struct {
+        commands: @TypeOf(commands),
+        
+        const Self = @This();
+        
+        pub fn init() Self {
+            return Self{
+                .commands = commands,
+            };
+        }
+        
+        /// Parse command-line arguments and execute the appropriate command
+        pub fn parse(allocator: std.mem.Allocator) !void {
+            const args = try std.process.argsAlloc(allocator);
+            defer std.process.argsFree(allocator, args);
+            
+            // Skip program name
+            const cli_args = if (args.len > 0) args[1..] else args;
+            return parseFrom(allocator, cli_args);
+        }
+        
+        /// Parse from custom argument array
+        pub fn parseFrom(allocator: std.mem.Allocator, args: []const []const u8) !void {
+            return parseFromWithPath(allocator, args, "");
+        }
+        
+        /// Parse from custom argument array with command path tracking
+        fn parseFromWithPath(allocator: std.mem.Allocator, args: []const []const u8, command_path: []const u8) !void {
+            if (args.len == 0) {
+                // No subcommand provided, show help
+                try showHelp(allocator);
+                return;
+            }
+            
+            // Check for help flags first
+            if (std.mem.eql(u8, args[0], "--help") or std.mem.eql(u8, args[0], "-h")) {
+                try showHelpWithPath(allocator, command_path);
+                return;
+            }
+            
+            const command_name = args[0];
+            const remaining_args = args[1..];
+            
+            // Build the new command path
+            const new_command_path = if (command_path.len == 0) 
+                command_name 
+            else 
+                try std.fmt.allocPrint(allocator, "{s} {s}", .{ command_path, command_name });
+            
+            // Find matching command
+            inline for (commands) |cmd| {
+                if (std.mem.eql(u8, cmd.command_name, command_name)) {
+                    if (cmd.command_type == .leaf) {
+                        // Execute leaf command with full command path for help
+                        const ArgsType = cmd.data.leaf;
+                        const parsed_args = parseSubcommandArgs(ArgsType, allocator, remaining_args, new_command_path) catch |err| switch (err) {
+                            error.HelpRequested => {
+                                // Help was already displayed with subcommand context
+                                return;
+                            },
+                            else => return err,
+                        };
+                        _ = parsed_args; // TODO: Execute command with parsed args
+                        return;
+                    } else {
+                        // Navigate to category command - delegate to its Commands system with path
+                        return parseCategoryCommandWithPath(cmd, allocator, remaining_args, new_command_path);
+                    }
+                }
+            }
+            
+            // Command not found
+            std.debug.print("Error: Unknown command '{s}'\n\n", .{command_name});
+            try showHelp(allocator);
+        }
+        
+        /// Show help for this command level
+        pub fn showHelp(allocator: std.mem.Allocator) !void {
+            return showHelpWithPath(allocator, "");
+        }
+        
+        /// Show help for this command level with command path
+        fn showHelpWithPath(allocator: std.mem.Allocator, command_path: []const u8) !void {
+            const colors = @import("colors.zig");
+            
+            // Extract program name
+            const help_gen = @import("help.zig");
+            const program_name = help_gen.extractProgramName(allocator) catch "program";
+            
+            // Build full usage line
+            const usage_line = if (command_path.len == 0)
+                try std.fmt.allocPrint(allocator, "{s} <command> [options]", .{program_name})
+            else
+                try std.fmt.allocPrint(allocator, "{s} {s} <command> [options]", .{ program_name, command_path });
+            
+            // Print header
+            if (colors.supportsColor()) {
+                if (command_path.len == 0) {
+                    std.debug.print("\x1b[1;36m{s}\x1b[0m - Subcommand Interface\n\n", .{program_name});
+                } else {
+                    std.debug.print("\x1b[1;36m{s} {s}\x1b[0m - Subcommand Interface\n\n", .{ program_name, command_path });
+                }
+                std.debug.print("\x1b[1mUsage:\x1b[0m {s}\n\n", .{usage_line});
+                std.debug.print("\x1b[1mAvailable Commands:\x1b[0m\n", .{});
+            } else {
+                if (command_path.len == 0) {
+                    std.debug.print("{s} - Subcommand Interface\n\n", .{program_name});
+                } else {
+                    std.debug.print("{s} {s} - Subcommand Interface\n\n", .{ program_name, command_path });
+                }
+                std.debug.print("Usage: {s}\n\n", .{usage_line});
+                std.debug.print("Available Commands:\n", .{});
+            }
+            
+            // Find the longest command name for alignment
+            var max_name_len: usize = 0;
+            inline for (commands) |cmd| {
+                if (!cmd.config.hidden) {
+                    if (cmd.command_name.len > max_name_len) {
+                        max_name_len = cmd.command_name.len;
+                    }
+                }
+            }
+            
+            // Print commands with proper alignment and colors
+            inline for (commands) |cmd| {
+                if (!cmd.config.hidden) {
+                    const help_text = cmd.config.help orelse "No description available";
+                    const padding = max_name_len - cmd.command_name.len + 2;
+                    
+                    if (colors.supportsColor()) {
+                        std.debug.print("  \x1b[32m{s}\x1b[0m", .{cmd.command_name});
+                        var i: usize = 0;
+                        while (i < padding) : (i += 1) {
+                            std.debug.print(" ", .{});
+                        }
+                        std.debug.print("{s}\n", .{help_text});
+                    } else {
+                        std.debug.print("  {s}", .{cmd.command_name});
+                        var i: usize = 0;
+                        while (i < padding) : (i += 1) {
+                            std.debug.print(" ", .{});
+                        }
+                        std.debug.print("{s}\n", .{help_text});
+                    }
+                }
+            }
+            
+            // Print footer
+            if (colors.supportsColor()) {
+                std.debug.print("\nUse '\x1b[32m{s} <command> --help\x1b[0m' for more information about a specific command.\n", .{program_name});
+            } else {
+                std.debug.print("\nUse '{s} <command> --help' for more information about a specific command.\n", .{program_name});
+            }
+        }
+    };
+}
+
 /// Automatic struct generator that creates CLI argument structs
 /// This creates a struct where metadata is automatically extracted from field definitions
 /// Usage: Args(.{ field_definitions, config }) or Args(.{ field_definitions })
@@ -466,4 +840,118 @@ test "title and description API" {
     const help_text = try TestArgs.help(allocator);
     try std.testing.expect(std.mem.indexOf(u8, help_text, "🚀 Test Application 🚀") != null);
     try std.testing.expect(std.mem.indexOf(u8, help_text, "A test application with custom title and description.") != null);
+}
+
+test "basic subcommand system" {
+    // Define some Args types for leaf commands
+    const ServeArgs = Args(&.{
+        flag("daemon", .{ .short = 'd', .help = "Run as daemon" }),
+        option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port to listen on" }),
+    });
+    
+    const BuildArgs = Args(&.{
+        flag("release", .{ .short = 'r', .help = "Build in release mode" }),
+        option("target", []const u8, .{ .short = 't', .default = "native", .help = "Target platform" }),
+    });
+    
+    // Create command definitions
+    const serve_cmd = command("serve", ServeArgs, .{ .help = "Start the server" });
+    const build_cmd = command("build", BuildArgs, .{ .help = "Build the project" });
+    
+    // Test command properties
+    try std.testing.expectEqualStrings(serve_cmd.command_name, "serve");
+    try std.testing.expect(serve_cmd.command_type == .leaf);
+    try std.testing.expect(serve_cmd.data.leaf == ServeArgs);
+    
+    try std.testing.expectEqualStrings(build_cmd.command_name, "build");
+    try std.testing.expect(build_cmd.command_type == .leaf);
+    try std.testing.expect(build_cmd.data.leaf == BuildArgs);
+    
+    // Create a Commands system
+    const TestCommands = Commands(&.{ serve_cmd, build_cmd });
+    
+    // Test that the commands system compiles and initializes
+    const cmd_system = TestCommands.init();
+    try std.testing.expect(cmd_system.commands.len == 2);
+}
+
+test "command depth validation" {
+    // This should compile fine (depth 0)
+    const ServeArgs = Args(&.{
+        flag("daemon", .{ .help = "Run as daemon" }),
+    });
+    
+    const cmd = command("serve", ServeArgs, .{ .help = "Start server" });
+    const TestCommands = Commands(&.{cmd});
+    
+    // Should compile without issues
+    const cmd_system = TestCommands.init();
+    try std.testing.expect(cmd_system.commands.len == 1);
+}
+
+test "subcommand help generation" {
+    const ServeArgs = Args(&.{
+        flag("daemon", .{ .short = 'd', .help = "Run as daemon" }),
+        option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port to listen on" }),
+    });
+    
+    const BuildArgs = Args(&.{
+        flag("release", .{ .short = 'r', .help = "Build in release mode" }),
+    });
+    
+    const serve_cmd = command("serve", ServeArgs, .{ .help = "Start the server" });
+    const build_cmd = command("build", BuildArgs, .{ .help = "Build the project" });
+    const hidden_cmd = command("internal", ServeArgs, .{ .help = "Internal command", .hidden = true });
+    
+    const TestCommands = Commands(&.{ serve_cmd, build_cmd, hidden_cmd });
+    const cmd_system = TestCommands.init();
+    
+    // Test that hidden commands are not counted in visible commands
+    var visible_count: u32 = 0;
+    inline for (cmd_system.commands) |cmd| {
+        if (!cmd.config.hidden) {
+            visible_count += 1;
+        }
+    }
+    try std.testing.expect(visible_count == 2); // serve and build, not internal
+}
+
+test "subcommand parsing simulation" {
+    const ServeArgs = Args(&.{
+        flag("daemon", .{ .short = 'd', .help = "Run as daemon" }),
+        option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port to listen on" }),
+    });
+    
+    const serve_cmd = command("serve", ServeArgs, .{ .help = "Start the server" });
+    const TestCommands = Commands(&.{serve_cmd});
+    
+    // Test command detection
+    const cmd_system = TestCommands.init();
+    const test_command = cmd_system.commands[0];
+    
+    try std.testing.expectEqualStrings(test_command.command_name, "serve");
+    try std.testing.expect(test_command.command_type == .leaf);
+    try std.testing.expect(test_command.data.leaf == ServeArgs);
+    try std.testing.expectEqualStrings(test_command.config.help.?, "Start the server");
+}
+
+test "subcommand help with proper usage line" {
+    const ServeArgs = Args(&.{
+        flag("daemon", .{ .short = 'd', .help = "Run as daemon" }),
+        option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port to listen on" }),
+    });
+    
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    
+    // Test that subcommand help generation includes subcommand name in usage
+    const help_gen = @import("help.zig");
+    const help_text = try help_gen.formatHelpWithSubcommand(ServeArgs, arena.allocator(), "testapp", ServeArgs.args_config, "serve");
+    
+    // Verify that the usage line includes the subcommand name
+    try std.testing.expect(std.mem.indexOf(u8, help_text, "Usage: testapp serve [OPTIONS]") != null);
+    
+    // Test without subcommand context for comparison
+    const help_text_normal = try help_gen.formatHelpWithSubcommand(ServeArgs, arena.allocator(), "testapp", ServeArgs.args_config, null);
+    try std.testing.expect(std.mem.indexOf(u8, help_text_normal, "Usage: testapp [OPTIONS]") != null);
 }

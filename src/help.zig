@@ -38,8 +38,13 @@ pub fn formatHelp(comptime T: type, allocator: std.mem.Allocator, program_name: 
     return formatHelpWithConfig(T, allocator, program_name, default_config);
 }
 
-/// Generate formatted help text for a type with configuration
+/// Generate formatted help text for a type with configuration and optional subcommand context
 pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, program_name: ?[]const u8, config: @import("cli.zig").ArgsConfig) ![]const u8 {
+    return formatHelpWithSubcommand(T, allocator, program_name, config, null);
+}
+
+/// Generate formatted help text for a type with configuration and subcommand context
+pub fn formatHelpWithSubcommand(comptime T: type, allocator: std.mem.Allocator, program_name: ?[]const u8, config: @import("cli.zig").ArgsConfig, subcommand_name: ?[]const u8) ![]const u8 {
     // Extract field metadata at compile time
     const field_info = comptime meta.extractFields(T);
 
@@ -69,6 +74,12 @@ pub fn formatHelpWithConfig(comptime T: type, allocator: std.mem.Allocator, prog
     try colors.addText(&help_text, .dim, "\n");
     try colors.addText(&help_text, .dim, "Usage: ");
     try colors.addText(&help_text, .bright_white, actual_program_name);
+    
+    // Add subcommand name if provided
+    if (subcommand_name) |subcmd| {
+        try colors.addText(&help_text, .dim, " ");
+        try colors.addText(&help_text, .green, subcmd);
+    }
 
     // Add options if any non-positional fields exist
     comptime var has_options = false;

@@ -43,6 +43,12 @@ pub const option = cli.option;
 pub const required = cli.required;
 pub const positional = cli.positional;
 
+// Subcommand system API
+pub const Commands = cli.Commands;
+pub const command = cli.command;
+pub const CommandConfig = cli.CommandConfig;
+pub const CommandDef = cli.CommandDef;
+
 // Export configuration types
 pub const FlagConfig = cli.FlagConfig;
 pub const OptionConfig = cli.OptionConfig;
