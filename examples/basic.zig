@@ -1,9 +1,7 @@
-//! Zync-CLI Demo Application - Automatic DSL with Zero Duplication
+//! Basic Zync-CLI Example - Automatic DSL with Zero Duplication
 
 const std = @import("std");
-
-/// This imports the separate module containing `root.zig`. Take a look in `build.zig` for details.
-const cli = @import("zync_cli_lib");
+const cli = @import("zync-cli");
 
 const banner =
     \\ ███████╗██╗   ██╗███╗   ██╗ ██████╗     ██████╗██╗     ██╗

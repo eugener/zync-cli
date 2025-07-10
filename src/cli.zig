@@ -279,7 +279,14 @@ fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConf
                     // In normal mode, help was already displayed, exit gracefully
                     std.process.exit(0);
                 },
-                else => return err,
+                else => {
+                    // In test mode, return error for testing
+                    if (@import("builtin").is_test) {
+                        return err;
+                    }
+                    // In normal mode, parser already exited, this should never be reached
+                    unreachable;
+                },
             };
         }
         
@@ -296,7 +303,14 @@ fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConf
                     // In normal mode, help was already displayed, exit gracefully
                     std.process.exit(0);
                 },
-                else => return err,
+                else => {
+                    // In test mode, return error for testing
+                    if (@import("builtin").is_test) {
+                        return err;
+                    }
+                    // In normal mode, parser already exited, this should never be reached
+                    unreachable;
+                },
             };
         }
         

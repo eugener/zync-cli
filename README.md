@@ -449,14 +449,34 @@ const args = try Args.parse(arena.allocator());
 
 ### Error Handling & Automatic Help
 
-Zync-CLI automatically handles help flags and displays help text before any validation occurs:
+Zync-CLI automatically handles both help requests and parsing errors with no boilerplate required:
 
 ```zig
-// Help is handled automatically - no boilerplate needed!
+// Everything is handled automatically - no boilerplate needed!
 const args = try Args.parse(arena.allocator());
 ```
 
-For advanced use cases where you need control over help handling, use `parseFromRaw`:
+**Automatic Error Handling:**
+- **Clean error messages** - No stack traces or verbose output shown to users
+- **Helpful suggestions** - Contextual hints for fixing issues  
+- **Silent exit** - Process exits quietly (code 0) after displaying errors
+- **No build noise** - Clean output even when used via build systems
+- **Test-friendly** - Errors are re-thrown in test mode for proper testing
+
+**Examples of clean error output:**
+```bash
+$ ./myapp
+Error: Missing required argument ('config')
+
+Suggestion: The --config flag is required
+
+$ ./myapp --invalid-flag  
+Error: Unknown flag ('invalid-flag')
+
+Suggestion: Use --help to see available options
+```
+
+For advanced use cases where you need control over error handling, use `parseFromRaw`:
 
 ```zig
 const args = Args.parseFromRaw(arena.allocator(), custom_args) catch |err| switch (err) {
@@ -464,16 +484,21 @@ const args = Args.parseFromRaw(arena.allocator(), custom_args) catch |err| switc
         // Handle help manually if needed
         return;
     },
+    error.MissingRequiredArgument => {
+        // Handle missing required args manually
+        return;
+    },
     else => return err,
 };
 ```
 
 **Key Features:**
-- **Automatic help processing** - Help flags are processed automatically
+- **Automatic help processing** - Help flags processed before validation
+- **Silent error handling** - Clean exit with no verbose output or build noise
 - **Pre-validation help** - Help works even when required fields are missing
 - **Standard conventions** - Supports both `--help` and `-h` flags
 - **Environment variable support** - Integrates seamlessly with standard priority chain
-- **Automatic error handling** - Errors are displayed automatically with suggestions
+- **Test compatibility** - Preserves error propagation in test environments
 
 ## Testing
 
@@ -575,11 +600,14 @@ zync-cli/
 │   ├── types.zig       # Core type definitions
 │   ├── parser.zig      # Argument parsing engine with detailed errors
 │   ├── meta.zig        # Compile-time metadata extraction
-│   ├── dsl.zig         # Function-based DSL implementation
+│   ├── cli.zig         # Function-based DSL implementation
 │   ├── help.zig        # Help text generation
 │   ├── colors.zig      # Advanced color API with format support and writer interface
-│   ├── testing.zig     # Testing utilities
-│   └── main.zig        # Demo application
+│   └── testing.zig     # Testing utilities
+├── examples/
+│   ├── simple.zig      # Minimal usage example
+│   ├── basic.zig       # Complete example with custom banner
+│   └── environment.zig # Environment variable demonstration
 ├── build.zig           # Build configuration
 ├── README.md           # This file
 ├── CLAUDE.md           # Project documentation
@@ -591,14 +619,25 @@ zync-cli/
 ### Building
 
 ```bash
-# Build library and demo
+# Build library only
 zig build
 
-# Run demo application
-zig build run -- --verbose --name Developer --count 2
+# Run examples (use -- to separate build args from app args)
+zig build run-simple -- --verbose --name Developer --count 2
+zig build run-basic -- --help
+zig build run-environment -- --debug --api-key secret
 
 # Install library
 zig build install
+
+# Install examples to zig-out/examples/
+zig build install-simple
+zig build install-basic
+zig build install-environment
+
+# Run installed executables directly (cleanest output)
+./zig-out/examples/environment --help
+./zig-out/examples/simple --verbose --count 3
 ```
 
 ### Contributing
