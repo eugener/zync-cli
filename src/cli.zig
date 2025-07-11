@@ -195,6 +195,9 @@ pub const CategoryCommandConfig = struct {
 
 /// Convert leaf command config to generic CommandConfig
 fn convertLeafConfig(comptime ArgsType: type, comptime config: LeafCommandConfig(ArgsType)) CommandConfig {
+    // Validate the leaf command config structure
+    comptime validateLeafCommandConfig(ArgsType, config);
+    
     const generic_handler = if (config.handler) |handler|
         struct {
             fn call(args_ptr: *const anyopaque, allocator: std.mem.Allocator) !void {
@@ -216,6 +219,9 @@ fn convertLeafConfig(comptime ArgsType: type, comptime config: LeafCommandConfig
 
 /// Convert category command config to generic CommandConfig
 fn convertCategoryConfig(comptime config: CategoryCommandConfig) CommandConfig {
+    // Validate the category command config structure
+    comptime validateCategoryCommandConfig(config);
+    
     return CommandConfig{
         .help = config.help,
         .title = config.title,
@@ -235,6 +241,9 @@ fn convertConfig(comptime config: anytype) CommandConfig {
     if (config_info != .@"struct") {
         @compileError("Config must be a struct");
     }
+    
+    // Validate the config structure and field types
+    comptime validateCommandConfig(config);
     
     var result = CommandConfig{};
     
@@ -636,7 +645,11 @@ fn validateCommandDepth(comptime commands: anytype, comptime current_depth: u32)
 
 /// Create a command structure with automatic depth validation
 pub fn Commands(comptime commands: anytype) type {
-    // Validate depth at compile time
+    // Validate input structure and detailed content at compile time
+    comptime validateCommandsInput(@TypeOf(commands));
+    comptime validateCommandsDetailed(commands);
+    
+    // Legacy depth validation (now part of validateCommandsDetailed, but kept for compatibility)
     validateCommandDepth(commands, 0);
     
     return struct {
@@ -928,12 +941,217 @@ fn validateArgsConfig(comptime T: type) void {
     
     const struct_info = type_info.@"struct";
     
-    // Validate that only known fields are present
+    // Validate that only known fields are present and have correct types
     for (struct_info.fields) |field| {
-        if (!std.mem.eql(u8, field.name, "title") and 
-           !std.mem.eql(u8, field.name, "description")) {
+        if (std.mem.eql(u8, field.name, "title")) {
+            validateConfigFieldType(field.type, field.name, "?[]const u8 or []const u8");
+        } else if (std.mem.eql(u8, field.name, "description")) {
+            validateConfigFieldType(field.type, field.name, "?[]const u8 or []const u8");
+        } else {
             @compileError("Unknown config field: '" ++ field.name ++ "'. Supported fields: title, description");
         }
+    }
+}
+
+/// Validate configuration field types
+fn validateConfigFieldType(comptime T: type, comptime field_name: []const u8, comptime expected: []const u8) void {
+    const type_info = @typeInfo(T);
+    
+    // Check if the type is valid for config fields
+    const is_valid = switch (type_info) {
+        .optional => |opt_info| isValidStringType(opt_info.child),
+        .pointer => isValidStringType(T),
+        else => false,
+    };
+    
+    if (!is_valid) {
+        @compileError("Config field '" ++ field_name ++ "' must be " ++ expected ++ ", found: " ++ @typeName(T));
+    }
+}
+
+/// Check if a type is a valid string type (slice or string literal)
+fn isValidStringType(comptime T: type) bool {
+    const type_info = @typeInfo(T);
+    
+    return switch (type_info) {
+        .pointer => |ptr_info| {
+            return (ptr_info.size == .slice and ptr_info.child == u8 and ptr_info.is_const) or
+                   (ptr_info.size == .one and ptr_info.is_const and @typeInfo(ptr_info.child) == .array and 
+                    @typeInfo(ptr_info.child).array.child == u8);
+        },
+        else => false,
+    };
+}
+
+/// Validate command configuration structure  
+fn validateCommandConfig(comptime config: anytype) void {
+    const ConfigType = @TypeOf(config);
+    const config_info = @typeInfo(ConfigType);
+    
+    if (config_info != .@"struct") {
+        @compileError("Command config must be a struct");
+    }
+    
+    const struct_info = config_info.@"struct";
+    
+    // Validate that only known fields are present and have correct types
+    for (struct_info.fields) |field| {
+        const field_value = @field(config, field.name);
+        
+        if (std.mem.eql(u8, field.name, "help")) {
+            validateOptionalStringField(@TypeOf(field_value), field.name);
+        } else if (std.mem.eql(u8, field.name, "title")) {
+            validateOptionalStringField(@TypeOf(field_value), field.name);
+        } else if (std.mem.eql(u8, field.name, "description")) {
+            validateOptionalStringField(@TypeOf(field_value), field.name);
+        } else if (std.mem.eql(u8, field.name, "hidden")) {
+            if (@TypeOf(field_value) != bool) {
+                @compileError("Config field '" ++ field.name ++ "' must be bool, found: " ++ @typeName(@TypeOf(field_value)));
+            }
+        } else if (std.mem.eql(u8, field.name, "handler")) {
+            validateHandlerField(@TypeOf(field_value), field.name);
+        } else {
+            @compileError("Unknown command config field: '" ++ field.name ++ 
+                         "'. Supported fields: help, title, description, hidden, handler");
+        }
+    }
+}
+
+/// Validate optional string fields (help, title, description)
+fn validateOptionalStringField(comptime T: type, comptime field_name: []const u8) void {
+    const type_info = @typeInfo(T);
+    
+    const is_valid = switch (type_info) {
+        .optional => |opt_info| isValidStringType(opt_info.child),
+        .pointer => isValidStringType(T),
+        else => false,
+    };
+    
+    if (!is_valid) {
+        @compileError("Config field '" ++ field_name ++ "' must be ?[]const u8 or []const u8, found: " ++ @typeName(T));
+    }
+}
+
+/// Validate handler field types
+fn validateHandlerField(comptime T: type, comptime field_name: []const u8) void {
+    const type_info = @typeInfo(T);
+    
+    const is_valid = switch (type_info) {
+        .optional => |opt_info| blk: {
+            const child_info = @typeInfo(opt_info.child);
+            break :blk child_info == .pointer and child_info.pointer.size == .one;
+        },
+        .pointer => |ptr_info| ptr_info.size == .one,
+        .@"fn" => true,
+        else => false,
+    };
+    
+    if (!is_valid) {
+        @compileError("Config field '" ++ field_name ++ "' must be a function or function pointer, found: " ++ @typeName(T));
+    }
+}
+
+/// Validate typed leaf command config
+fn validateLeafCommandConfig(comptime ArgsType: type, comptime config: LeafCommandConfig(ArgsType)) void {
+    // Validate string fields
+    if (config.help) |help| {
+        if (!isValidStringType(@TypeOf(help))) {
+            @compileError("LeafCommandConfig.help must be []const u8 or string literal, found: " ++ @typeName(@TypeOf(help)));
+        }
+    }
+    
+    if (config.title) |title| {
+        if (!isValidStringType(@TypeOf(title))) {
+            @compileError("LeafCommandConfig.title must be []const u8 or string literal, found: " ++ @typeName(@TypeOf(title)));
+        }
+    }
+    
+    if (config.description) |description| {
+        if (!isValidStringType(@TypeOf(description))) {
+            @compileError("LeafCommandConfig.description must be []const u8 or string literal, found: " ++ @typeName(@TypeOf(description)));
+        }
+    }
+    
+    // Validate boolean field
+    if (@TypeOf(config.hidden) != bool) {
+        @compileError("LeafCommandConfig.hidden must be bool, found: " ++ @typeName(@TypeOf(config.hidden)));
+    }
+    
+    // Validate handler function if present
+    if (config.handler) |handler| {
+        validateLeafCommandHandler(ArgsType, @TypeOf(handler));
+    }
+}
+
+/// Validate leaf command handler function signature
+fn validateLeafCommandHandler(comptime ArgsType: type, comptime HandlerType: type) void {
+    const handler_info = @typeInfo(HandlerType);
+    
+    if (handler_info != .@"fn") {
+        @compileError("Handler must be a function, found: " ++ @typeName(HandlerType));
+    }
+    
+    const fn_info = handler_info.@"fn";
+    
+    // Check parameter count (should be 2: args and allocator)
+    if (fn_info.params.len != 2) {
+        @compileError("Handler function must have exactly 2 parameters: (args: ArgsType.ArgsType, allocator: std.mem.Allocator), found " ++ 
+                     std.fmt.comptimePrint("{}", .{fn_info.params.len}) ++ " parameters");
+    }
+    
+    // Check first parameter type (args)
+    const args_param = fn_info.params[0];
+    if (args_param.type != ArgsType.ArgsType) {
+        @compileError("Handler function first parameter must be " ++ @typeName(ArgsType.ArgsType) ++ 
+                     ", found: " ++ @typeName(args_param.type.?));
+    }
+    
+    // Check second parameter type (allocator)
+    const allocator_param = fn_info.params[1];
+    if (allocator_param.type != std.mem.Allocator) {
+        @compileError("Handler function second parameter must be std.mem.Allocator, found: " ++ 
+                     @typeName(allocator_param.type.?));
+    }
+    
+    // Check return type (should be error union or void)
+    const return_type = fn_info.return_type orelse void;
+    const return_info = @typeInfo(return_type);
+    
+    const is_valid_return = switch (return_info) {
+        .void => true,
+        .error_union => true,
+        else => false,
+    };
+    
+    if (!is_valid_return) {
+        @compileError("Handler function must return void or error union, found: " ++ @typeName(return_type));
+    }
+}
+
+/// Validate typed category command config
+fn validateCategoryCommandConfig(comptime config: CategoryCommandConfig) void {
+    // Validate string fields
+    if (config.help) |help| {
+        if (!isValidStringType(@TypeOf(help))) {
+            @compileError("CategoryCommandConfig.help must be []const u8 or string literal, found: " ++ @typeName(@TypeOf(help)));
+        }
+    }
+    
+    if (config.title) |title| {
+        if (!isValidStringType(@TypeOf(title))) {
+            @compileError("CategoryCommandConfig.title must be []const u8 or string literal, found: " ++ @typeName(@TypeOf(title)));
+        }
+    }
+    
+    if (config.description) |description| {
+        if (!isValidStringType(@TypeOf(description))) {
+            @compileError("CategoryCommandConfig.description must be []const u8 or string literal, found: " ++ @typeName(@TypeOf(description)));
+        }
+    }
+    
+    // Validate boolean field
+    if (@TypeOf(config.hidden) != bool) {
+        @compileError("CategoryCommandConfig.hidden must be bool, found: " ++ @typeName(@TypeOf(config.hidden)));
     }
 }
 
@@ -1062,6 +1280,168 @@ fn validateEnvironmentVariableName(comptime env_name: []const u8, comptime field
     if (!std.ascii.isAlphabetic(env_name[0]) and env_name[0] != '_') {
         @compileError("Environment variable '" ++ env_name ++ "' for field '" ++ field_name ++ 
                      "' must start with a letter or underscore");
+    }
+}
+
+// === Commands Validation Functions ===
+
+/// Validate Commands input structure and content
+fn validateCommandsInput(comptime T: type) void {
+    const type_info = @typeInfo(T);
+    
+    // Must be either a slice/array/pointer-to-tuple/pointer-to-array or a tuple struct
+    switch (type_info) {
+        .pointer => |ptr_info| {
+            if (ptr_info.size == .one) {
+                // Could be &.{...} (pointer to tuple struct) or &[_]T (pointer to array)
+                const child_info = @typeInfo(ptr_info.child);
+                if (child_info == .@"struct" and child_info.@"struct".is_tuple) {
+                    // &.{...} syntax - valid
+                } else if (child_info == .array) {
+                    // &[_]T syntax - valid
+                } else {
+                    @compileError("Commands definitions must be &.{...} or &[_]T syntax");
+                }
+            } else if (ptr_info.size == .many or ptr_info.size == .slice) {
+                // Slice - valid
+            } else {
+                @compileError("Commands definitions must be a slice, array, or tuple (&.{...})");
+            }
+        },
+        .array => {
+            // Direct arrays are valid
+        },
+        .@"struct" => |struct_info| {
+            if (!struct_info.is_tuple) {
+                @compileError("Commands expects command definitions as an array/slice/tuple (&.{...})");
+            }
+        },
+        else => {
+            @compileError("Commands expects command definitions as an array/slice/tuple (&.{...})");
+        }
+    }
+}
+
+/// Detailed validation of command definitions
+fn validateCommandsDetailed(comptime commands: anytype) void {
+    // Check for duplicate command names
+    comptime validateNoDuplicateCommands(commands);
+    
+    // Validate command structure (each command must be a valid CommandDef)
+    comptime validateCommandStructure(commands);
+    
+    // Validate command names follow proper conventions
+    comptime validateCommandNames(commands);
+    
+    // Validate command hierarchy and nesting
+    comptime validateCommandHierarchy(commands, 0);
+}
+
+/// Check for duplicate command names
+fn validateNoDuplicateCommands(comptime commands: anytype) void {
+    inline for (commands, 0..) |cmd, i| {
+        const command_name = cmd.command_name;
+        inline for (commands, 0..) |other_cmd, j| {
+            if (j > i and std.mem.eql(u8, command_name, other_cmd.command_name)) {
+                @compileError("Duplicate command name: '" ++ command_name ++ "'");
+            }
+        }
+    }
+}
+
+/// Validate command structure - each command must be a valid CommandDef
+fn validateCommandStructure(comptime commands: anytype) void {
+    inline for (commands) |cmd| {
+        const CommandType = @TypeOf(cmd);
+        const command_info = @typeInfo(CommandType);
+        
+        if (command_info != .@"struct") {
+            @compileError("Commands must be created with cli.command() function");
+        }
+        
+        const struct_info = command_info.@"struct";
+        
+        // Check for required CommandDef fields
+        var has_command_name = false;
+        var has_config = false;
+        var has_command_type = false;
+        var has_data = false;
+        
+        for (struct_info.fields) |field| {
+            if (std.mem.eql(u8, field.name, "command_name")) {
+                has_command_name = true;
+            } else if (std.mem.eql(u8, field.name, "config")) {
+                has_config = true;
+            } else if (std.mem.eql(u8, field.name, "command_type")) {
+                has_command_type = true;
+            } else if (std.mem.eql(u8, field.name, "data")) {
+                has_data = true;
+            }
+        }
+        
+        if (!has_command_name or !has_config or !has_command_type or !has_data) {
+            @compileError("Invalid command structure. Commands must be created with cli.command() function");
+        }
+    }
+}
+
+/// Validate command names follow proper conventions
+fn validateCommandNames(comptime commands: anytype) void {
+    inline for (commands) |cmd| {
+        const name = cmd.command_name;
+        
+        if (name.len == 0) {
+            @compileError("Command name cannot be empty");
+        }
+        
+        // Check for invalid characters
+        for (name) |char| {
+            if (char == ' ' or char == '\t' or char == '\n' or char == '\r') {
+                @compileError("Command name '" ++ name ++ "' cannot contain whitespace characters");
+            }
+            
+            if (char == '-' and name[0] == '-') {
+                @compileError("Command name '" ++ name ++ "' cannot start with dashes (reserved for flags)");
+            }
+        }
+        
+        // Check for reserved names
+        if (std.mem.eql(u8, name, "help") or std.mem.eql(u8, name, "version")) {
+            @compileError("Command name '" ++ name ++ "' is reserved. Choose a different name");
+        }
+    }
+}
+
+/// Validate command hierarchy and nesting depth
+fn validateCommandHierarchy(comptime commands: anytype, comptime current_depth: u32) void {
+    const MAX_DEPTH = 5;
+    
+    if (current_depth >= MAX_DEPTH) {
+        @compileError("Command nesting too deep. Maximum allowed depth is " ++ 
+                     std.fmt.comptimePrint("{}", .{MAX_DEPTH}) ++ " levels");
+    }
+    
+    inline for (commands) |cmd| {
+        // For category commands, validate subcommands recursively
+        if (cmd.command_type == .category) {
+            const category_type = cmd.data.category;
+            const category_info = @typeInfo(category_type);
+            
+            if (category_info == .@"struct") {
+                const struct_info = category_info.@"struct";
+                
+                // Look for 'commands' field indicating this is a Commands type
+                for (struct_info.fields) |field| {
+                    if (std.mem.eql(u8, field.name, "commands")) {
+                        // This command has subcommands - validate them recursively
+                        const subcommands = @field(@as(category_type, undefined), field.name);
+                        comptime validateCommandHierarchy(subcommands, current_depth + 1);
+                        break;
+                    }
+                }
+            }
+        }
+        // Leaf commands don't need hierarchy validation
     }
 }
 
