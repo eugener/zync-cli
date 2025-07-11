@@ -800,14 +800,286 @@ pub fn Commands(comptime commands: anytype) type {
     };
 }
 
+/// Validate the overall Args input structure
+fn validateArgsInput(comptime T: type) void {
+    const type_info = @typeInfo(T);
+    
+    // Must be either a slice/array/pointer-to-tuple/pointer-to-array or a tuple struct
+    switch (type_info) {
+        .pointer => |ptr_info| {
+            if (ptr_info.size == .one) {
+                // Could be &.{...} (pointer to tuple struct) or &[_]T (pointer to array)
+                const child_info = @typeInfo(ptr_info.child);
+                if (child_info == .@"struct" and child_info.@"struct".is_tuple) {
+                    // &.{...} syntax - valid
+                } else if (child_info == .array) {
+                    // &[_]T syntax - valid
+                } else {
+                    @compileError("Args field definitions must be &.{...} or &[_]T syntax");
+                }
+            } else if (ptr_info.size == .many or ptr_info.size == .slice) {
+                // Slice - valid
+            } else {
+                @compileError("Args field definitions must be a slice, array, or tuple (&.{...})");
+            }
+        },
+        .array => {
+            // Direct arrays are valid
+        },
+        .@"struct" => |struct_info| {
+            if (!struct_info.is_tuple) {
+                @compileError("Args expects either field definitions or a tuple of (field_definitions, config)");
+            }
+        },
+        else => {
+            @compileError("Args expects field definitions as an array/slice/tuple (&.{...}) or tuple with config");
+        }
+    }
+}
+
+/// Validate field definitions array structure and content
+fn validateFieldDefinitions(comptime T: type) void {
+    const type_info = @typeInfo(T);
+    
+    // Handle different input formats  
+    switch (type_info) {
+        .pointer => |ptr_info| {
+            if (ptr_info.size == .one) {
+                // &.{...} syntax creates a pointer to a tuple struct
+                const child_info = @typeInfo(ptr_info.child);
+                if (child_info == .@"struct" and child_info.@"struct".is_tuple) {
+                    // Validate each field in the tuple struct
+                    for (child_info.@"struct".fields) |field| {
+                        validateFieldDefType(field.type);
+                    }
+                } else if (child_info == .array) {
+                    // &[_]T syntax - validate the array element type
+                    validateFieldDefType(child_info.array.child);
+                } else {
+                    @compileError("Expected pointer to tuple struct (&.{...}) or array (&[_]T)");
+                }
+            } else {
+                // Slice - validate the element type
+                validateFieldDefType(ptr_info.child);
+            }
+        },
+        .array => |array_info| {
+            // Direct array - validate the element type
+            validateFieldDefType(array_info.child);
+        },
+        else => @compileError("Field definitions must be an array, slice, or tuple (&.{...})"),
+    }
+}
+
+/// Validate that a type is a valid FieldDef
+fn validateFieldDefType(comptime T: type) void {
+    const type_info = @typeInfo(T);
+    
+    if (type_info != .@"struct") {
+        @compileError("Field definitions must be struct types created with cli.flag(), cli.option(), etc.");
+    }
+    
+    const struct_info = type_info.@"struct";
+    
+    // Check for required fields
+    var has_value = false;
+    var has_metadata = false;
+    
+    for (struct_info.fields) |field| {
+        if (std.mem.eql(u8, field.name, "value")) {
+            has_value = true;
+        } else if (std.mem.eql(u8, field.name, "metadata")) {
+            has_metadata = true;
+        }
+    }
+    
+    if (!has_value) {
+        @compileError("Field definitions must have a 'value' field. Use cli.flag(), cli.option(), cli.required(), or cli.positional()");
+    }
+    
+    if (!has_metadata) {
+        @compileError("Field definitions must have a 'metadata' field. Use cli.flag(), cli.option(), cli.required(), or cli.positional()");
+    }
+    
+    // Check for required methods
+    var has_getValue = false;
+    var has_getMeta = false;
+    
+    for (struct_info.decls) |decl| {
+        if (std.mem.eql(u8, decl.name, "getValue")) {
+            has_getValue = true;
+        } else if (std.mem.eql(u8, decl.name, "getMeta")) {
+            has_getMeta = true;
+        }
+    }
+    
+    if (!has_getValue or !has_getMeta) {
+        @compileError("Field definitions must be created with cli.flag(), cli.option(), cli.required(), or cli.positional()");
+    }
+}
+
+/// Validate Args configuration structure
+fn validateArgsConfig(comptime T: type) void {
+    const type_info = @typeInfo(T);
+    
+    if (type_info != .@"struct") {
+        @compileError("Args config must be a struct with optional .title and .description fields");
+    }
+    
+    const struct_info = type_info.@"struct";
+    
+    // Validate that only known fields are present
+    for (struct_info.fields) |field| {
+        if (!std.mem.eql(u8, field.name, "title") and 
+           !std.mem.eql(u8, field.name, "description")) {
+            @compileError("Unknown config field: '" ++ field.name ++ "'. Supported fields: title, description");
+        }
+    }
+}
+
+/// Detailed validation of field definitions content
+fn validateFieldDefinitionsDetailed(comptime field_definitions: anytype) void {
+    // Convert field_definitions to a proper array for validation
+    const field_array = comptime convertToFieldArray(field_definitions);
+    
+    // Check for duplicate field names
+    comptime validateNoDuplicateNames(field_array);
+    
+    // Check for duplicate short flags
+    comptime validateNoDuplicateShortFlags(field_array);
+    
+    // Validate field types are supported
+    comptime validateSupportedFieldTypes(field_array);
+    
+    // Validate positional argument ordering
+    comptime validatePositionalOrdering(field_array);
+    
+    // Validate environment variable names
+    comptime validateEnvironmentVariables(field_array);
+}
+
+/// Convert field_definitions to a form that can be validated
+/// For tuple structs from &.{...}, we can't create a homogeneous array since each field has different types
+/// Instead, we just pass the original field_definitions and let validation functions handle the iteration
+fn convertToFieldArray(comptime field_definitions: anytype) @TypeOf(field_definitions) {
+    // Just return the field_definitions as-is
+    // The validation functions need to be updated to handle tuple struct iteration properly
+    return field_definitions;
+}
+
+/// Check for duplicate field names
+fn validateNoDuplicateNames(comptime field_definitions: anytype) void {
+    inline for (field_definitions, 0..) |field_def, i| {
+        const field_name = field_def.metadata.name;
+        inline for (field_definitions, 0..) |other_def, j| {
+            if (j > i and std.mem.eql(u8, field_name, other_def.metadata.name)) {
+                @compileError("Duplicate field name: '" ++ field_name ++ "'");
+            }
+        }
+    }
+}
+
+/// Check for duplicate short flags
+fn validateNoDuplicateShortFlags(comptime field_definitions: anytype) void {
+    inline for (field_definitions, 0..) |field_def, i| {
+        if (field_def.metadata.short) |short_flag| {
+            inline for (field_definitions, 0..) |other_def, j| {
+                if (j > i) {
+                    if (other_def.metadata.short) |other_short| {
+                        if (short_flag == other_short) {
+                            @compileError("Duplicate short flag: '-" ++ [_]u8{short_flag} ++ "'");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Validate that field types are supported
+fn validateSupportedFieldTypes(comptime field_definitions: anytype) void {
+    inline for (field_definitions) |field_def| {
+        const field_type = @TypeOf(field_def.value);
+        comptime validateSupportedType(field_type, field_def.metadata.name);
+    }
+}
+
+/// Check if a type is supported for CLI parsing
+fn validateSupportedType(comptime T: type, comptime field_name: []const u8) void {
+    switch (T) {
+        bool, u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, f32, f64, []const u8 => {
+            // Supported types
+        },
+        else => {
+            @compileError("Unsupported field type for '" ++ field_name ++ "': " ++ @typeName(T) ++ 
+                         ". Supported types: bool, integers, floats, []const u8");
+        }
+    }
+}
+
+/// Validate positional argument ordering
+fn validatePositionalOrdering(comptime field_definitions: anytype) void {
+    var found_optional_positional = false;
+    
+    inline for (field_definitions) |field_def| {
+        if (field_def.metadata.positional) {
+            if (field_def.metadata.required) {
+                if (found_optional_positional) {
+                    @compileError("Required positional argument '" ++ field_def.metadata.name ++ 
+                                 "' cannot come after optional positional arguments");
+                }
+            } else {
+                found_optional_positional = true;
+            }
+        }
+    }
+}
+
+/// Validate environment variable names
+fn validateEnvironmentVariables(comptime field_definitions: anytype) void {
+    inline for (field_definitions) |field_def| {
+        if (field_def.metadata.env_var) |env_name| {
+            comptime validateEnvironmentVariableName(env_name, field_def.metadata.name);
+        }
+    }
+}
+
+/// Check environment variable name format
+fn validateEnvironmentVariableName(comptime env_name: []const u8, comptime field_name: []const u8) void {
+    if (env_name.len == 0) {
+        @compileError("Environment variable name for field '" ++ field_name ++ "' cannot be empty");
+    }
+    
+    // Check for valid characters (alphanumeric + underscore)
+    for (env_name) |char| {
+        if (!std.ascii.isAlphanumeric(char) and char != '_') {
+            @compileError("Invalid character in environment variable '" ++ env_name ++ 
+                         "' for field '" ++ field_name ++ "'. Use only letters, numbers, and underscores.");
+        }
+    }
+    
+    // Should start with letter or underscore
+    if (!std.ascii.isAlphabetic(env_name[0]) and env_name[0] != '_') {
+        @compileError("Environment variable '" ++ env_name ++ "' for field '" ++ field_name ++ 
+                     "' must start with a letter or underscore");
+    }
+}
+
 /// Automatic struct generator that creates CLI argument structs
 /// This creates a struct where metadata is automatically extracted from field definitions
 /// Usage: Args(.{ field_definitions, config }) or Args(.{ field_definitions })
 pub fn Args(args: anytype) type {
+    // Validate input structure at compile time
+    comptime validateArgsInput(@TypeOf(args));
+    
     const args_info = @typeInfo(@TypeOf(args));
     if (args_info == .@"struct" and args_info.@"struct".is_tuple) {
         const fields = args_info.@"struct".fields;
         if (fields.len == 2) {
+            // Validate both field definitions and config
+            comptime validateFieldDefinitions(@TypeOf(args[0]));
+            comptime validateArgsConfig(@TypeOf(args[1]));
+            
             // Two arguments: field_definitions and config
             // Convert the anonymous struct to ArgsConfig
             const config = ArgsConfig{
@@ -816,19 +1088,24 @@ pub fn Args(args: anytype) type {
             };
             return ArgsWithConfig(args[0], config);
         } else if (fields.len == 1) {
+            comptime validateFieldDefinitions(@TypeOf(args[0]));
             // One argument: field_definitions only
             return ArgsWithConfig(args[0], ArgsConfig{});
         } else {
-            @compileError("Args() expects 1 or 2 arguments");
+            @compileError("Args() expects 1 or 2 arguments: field_definitions or (field_definitions, config)");
         }
     } else {
         // Direct field definitions array
+        comptime validateFieldDefinitions(@TypeOf(args));
         return ArgsWithConfig(args, ArgsConfig{});
     }
 }
 
 /// Internal function that implements the Args generation logic
 fn ArgsWithConfig(comptime field_definitions: anytype, comptime config: ArgsConfig) type {
+    // Validate field definitions in detail
+    comptime validateFieldDefinitionsDetailed(field_definitions);
+    
     const field_count = field_definitions.len;
     
     // Extract metadata from field definitions

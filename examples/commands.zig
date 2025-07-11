@@ -2,10 +2,10 @@
 //!
 //! This example demonstrates the full power of zync-cli's command system including:
 //! - Handler functions for automatic command execution
-//! - Nested subcommand hierarchies (db migrate up, db seed, etc.)  
+//! - Nested subcommand hierarchies (db migrate up, db seed, etc.)
 //! - Type-safe argument parsing with environment variable support
 //! - Zero-boilerplate handler assignment with automatic type conversion
-//! 
+//!
 //! Syntax: cli.command("name", Args, .{ .help = "...", .handler = myFunction })
 //!
 //! Examples:
@@ -123,15 +123,15 @@ const DbSeedArgs = cli.Args(&.{
 });
 
 // === Database Commands (with handlers) ===
-// 
+//
 // NOTE: Two approaches for type safety:
-// 1. Legacy approach (backward compatible): cli.command() with .handler 
+// 1. Legacy approach (backward compatible): cli.command() with .handler
 // 2. New typed approach: cli.leafCommand() with LeafCommandConfig(ArgsType)
 
 const DbMigrateCommands = cli.Commands(&.{
     // Legacy approach (still works, but less type-safe)
     cli.command("up", DbMigrateUpArgs, .{ .help = "Apply database migrations", .handler = migrateUpHandler }),
-    
+
     // New strongly-typed approach (recommended for new code):
     // cli.leafCommand("up", DbMigrateUpArgs, cli.LeafCommandConfig(DbMigrateUpArgs){
     //     .help = "Apply database migrations",
@@ -142,10 +142,10 @@ const DbMigrateCommands = cli.Commands(&.{
 const DatabaseCommands = cli.Commands(&.{
     // Category command (no handler, only subcommands)
     cli.command("migrate", DbMigrateCommands, .{ .help = "Database migration operations" }),
-    
+
     // Leaf command with handler (legacy approach)
     cli.command("seed", DbSeedArgs, .{ .help = "Seed database with initial data", .handler = seedHandler }),
-    
+
     // New strongly-typed approach for category commands:
     // cli.categoryCommand("migrate", DbMigrateCommands, cli.CategoryCommandConfig{
     //     .help = "Database migration operations",
