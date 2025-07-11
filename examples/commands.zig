@@ -123,15 +123,33 @@ const DbSeedArgs = cli.Args(&.{
 });
 
 // === Database Commands (with handlers) ===
+// 
+// NOTE: Two approaches for type safety:
+// 1. Legacy approach (backward compatible): cli.command() with .handler 
+// 2. New typed approach: cli.leafCommand() with LeafCommandConfig(ArgsType)
 
 const DbMigrateCommands = cli.Commands(&.{
+    // Legacy approach (still works, but less type-safe)
     cli.command("up", DbMigrateUpArgs, .{ .help = "Apply database migrations", .handler = migrateUpHandler }),
-    // Note: migrate down would need its own handler - not implemented in this example
+    
+    // New strongly-typed approach (recommended for new code):
+    // cli.leafCommand("up", DbMigrateUpArgs, cli.LeafCommandConfig(DbMigrateUpArgs){
+    //     .help = "Apply database migrations",
+    //     .handler = migrateUpHandler,
+    // }),
 });
 
 const DatabaseCommands = cli.Commands(&.{
+    // Category command (no handler, only subcommands)
     cli.command("migrate", DbMigrateCommands, .{ .help = "Database migration operations" }),
+    
+    // Leaf command with handler (legacy approach)
     cli.command("seed", DbSeedArgs, .{ .help = "Seed database with initial data", .handler = seedHandler }),
+    
+    // New strongly-typed approach for category commands:
+    // cli.categoryCommand("migrate", DbMigrateCommands, cli.CategoryCommandConfig{
+    //     .help = "Database migration operations",
+    // }),
 });
 
 // === Main Application Commands ===

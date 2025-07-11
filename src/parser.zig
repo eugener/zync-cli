@@ -74,7 +74,7 @@ pub fn parseFromWithMeta(comptime TargetType: type, comptime MetaType: type, all
 /// Parse a long flag (--flag or --flag=value)
 fn parseLongFlag(
     comptime T: type,
-    field_info: anytype,
+    field_info: []const meta.FieldMetadata,
     result: *T,
     args: []const []const u8,
     index: usize,
@@ -119,7 +119,7 @@ fn parseLongFlag(
             } else {
                 // Flag requires a value, get it from next argument
                 if (index + 1 >= args.len) {
-                    const detailed_error = try createMissingValueError(flag_name, allocator);
+                    const detailed_error = try error_utils.createMissingValueError(flag_name, allocator);
                     colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                     // In test mode, return error for test control
                     try test_utils.errorIfTest(ParseError.MissingValue);
@@ -147,7 +147,7 @@ fn parseLongFlag(
 /// Parse a short flag (-f or -fvalue)
 fn parseShortFlag(
     comptime T: type,
-    field_info: anytype,
+    field_info: []const meta.FieldMetadata,
     result: *T,
     args: []const []const u8,
     index: usize,
@@ -176,7 +176,7 @@ fn parseShortFlag(
             // Value in next argument
             if (index + 1 >= args.len) {
                 const flag_name = try formatFlagChar(allocator, flag_char);
-                const detailed_error = try createMissingValueError(flag_name, allocator);
+                const detailed_error = try error_utils.createMissingValueError(flag_name, allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 return ParseError.MissingValue;
             }
@@ -200,7 +200,7 @@ fn parseShortFlag(
 /// Parse a positional argument
 fn parsePositional(
     comptime T: type,
-    field_info: anytype,
+    field_info: []const meta.FieldMetadata,
     result: *T,
     args: []const []const u8,
     index: usize,
@@ -223,7 +223,7 @@ fn parsePositional(
 }
 
 /// Find field by name
-fn findFieldByName(field_info: anytype, name: []const u8) ?usize {
+fn findFieldByName(field_info: []const meta.FieldMetadata, name: []const u8) ?usize {
     for (field_info, 0..) |field, i| {
         if (std.mem.eql(u8, field.name, name)) {
             return i;
@@ -233,7 +233,7 @@ fn findFieldByName(field_info: anytype, name: []const u8) ?usize {
 }
 
 /// Find field by short flag
-fn findFieldByShort(field_info: anytype, short: u8) ?usize {
+fn findFieldByShort(field_info: []const meta.FieldMetadata, short: u8) ?usize {
     for (field_info, 0..) |field, i| {
         if (field.short) |s| {
             if (s == short) {
@@ -245,7 +245,7 @@ fn findFieldByShort(field_info: anytype, short: u8) ?usize {
 }
 
 /// Find positional field by position
-fn findPositionalField(field_info: anytype, position: usize) ?usize {
+fn findPositionalField(field_info: []const meta.FieldMetadata, position: usize) ?usize {
     var pos_count: usize = 0;
     for (field_info, 0..) |field, i| {
         if (field.positional) {
@@ -259,7 +259,7 @@ fn findPositionalField(field_info: anytype, position: usize) ?usize {
 }
 
 /// Count provided positional arguments
-fn countProvidedPositional(field_info: anytype, provided: []const []const u8) usize {
+fn countProvidedPositional(field_info: []const meta.FieldMetadata, provided: []const []const u8) usize {
     var count: usize = 0;
     for (field_info) |field| {
         if (field.positional) {
@@ -288,7 +288,7 @@ fn convertValueToType(comptime FieldType: type, value: []const u8, field_name: [
         },
         u8, u16, u32, u64, usize => {
             return std.fmt.parseInt(FieldType, value, 10) catch {
-                const detailed_error = try createInvalidValueError(field_name, value, "integer", allocator);
+                const detailed_error = try error_utils.createInvalidValueError(field_name, "integer", allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 // In test mode, return error for test control
                 try test_utils.errorIfTest(ParseError.InvalidValue);
@@ -298,7 +298,7 @@ fn convertValueToType(comptime FieldType: type, value: []const u8, field_name: [
         },
         i8, i16, i32, i64, isize => {
             return std.fmt.parseInt(FieldType, value, 10) catch {
-                const detailed_error = try createInvalidValueError(field_name, value, "integer", allocator);
+                const detailed_error = try error_utils.createInvalidValueError(field_name, "integer", allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 // In test mode, return error for test control
                 try test_utils.errorIfTest(ParseError.InvalidValue);
@@ -308,7 +308,7 @@ fn convertValueToType(comptime FieldType: type, value: []const u8, field_name: [
         },
         f32, f64 => {
             return std.fmt.parseFloat(FieldType, value) catch {
-                const detailed_error = try createInvalidValueError(field_name, value, "number", allocator);
+                const detailed_error = try error_utils.createInvalidValueError(field_name, "number", allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 // In test mode, return error for test control
                 try test_utils.errorIfTest(ParseError.InvalidValue);
@@ -338,7 +338,7 @@ fn setFieldValue(comptime T: type, result: *T, field: meta.FieldMetadata, value:
 }
 
 /// Apply environment variables for fields that weren't provided
-fn applyEnvironmentVariables(comptime T: type, field_info: anytype, result: *T, provided: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
+fn applyEnvironmentVariables(comptime T: type, field_info: []const meta.FieldMetadata, result: *T, provided: *std.ArrayList([]const u8), allocator: std.mem.Allocator) !void {
     for (field_info) |field| {
         if (field.env_var) |env_var_name| {
             var is_provided = false;
@@ -363,7 +363,7 @@ fn applyEnvironmentVariables(comptime T: type, field_info: anytype, result: *T, 
 }
 
 /// Apply default values for fields that weren't provided
-fn applyDefaults(comptime T: type, field_info: anytype, result: *T, provided: []const []const u8, allocator: std.mem.Allocator) !void {
+fn applyDefaults(comptime T: type, field_info: []const meta.FieldMetadata, result: *T, provided: []const []const u8, allocator: std.mem.Allocator) !void {
     for (field_info) |field| {
         if (field.default) |default_value| {
             var is_provided = false;
@@ -382,7 +382,7 @@ fn applyDefaults(comptime T: type, field_info: anytype, result: *T, provided: []
 }
 
 /// Validate required fields
-fn validateRequired(comptime T: type, field_info: anytype, result: T, provided: []const []const u8, allocator: std.mem.Allocator) !void {
+fn validateRequired(comptime T: type, field_info: []const meta.FieldMetadata, result: T, provided: []const []const u8, allocator: std.mem.Allocator) !void {
     _ = result;
     for (field_info) |field| {
         if (field.required) {
@@ -395,7 +395,7 @@ fn validateRequired(comptime T: type, field_info: anytype, result: T, provided: 
             }
             
             if (!is_provided) {
-                const detailed_error = try createMissingRequiredError(field.name, allocator);
+                const detailed_error = try error_utils.createMissingRequiredError(field.name, allocator);
                 colors.printError(detailed_error.message, detailed_error.context, detailed_error.suggestion);
                 // In test mode, return error for test control
                 try test_utils.errorIfTest(ParseError.MissingRequiredArgument);
@@ -539,21 +539,8 @@ fn createUnknownFlagError(comptime T: type, flag: []const u8, allocator: std.mem
     return error_utils.createUnknownFlagError(flag, if (suggestions.len > 0) suggestions else null, allocator);
 }
 
-/// Create detailed error message for missing value
-fn createMissingValueError(flag: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
-    return error_utils.createMissingValueError(flag, allocator);
-}
-
-/// Create detailed error message for invalid value
-fn createInvalidValueError(flag: []const u8, value: []const u8, expected_type: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
-    _ = value; // Not currently used but may be useful for logging
-    return error_utils.createInvalidValueError(flag, expected_type, allocator);
-}
-
-/// Create detailed error message for missing required argument
-fn createMissingRequiredError(field_name: []const u8, allocator: std.mem.Allocator) !types.DetailedParseError {
-    return error_utils.createMissingRequiredError(field_name, allocator);
-}
+// Note: Simple error functions now call error_utils directly
+// createUnknownFlagError is kept because it adds suggestion logic
 
 test "parse simple arguments" {
     const cli = @import("cli.zig");

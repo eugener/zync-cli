@@ -69,6 +69,23 @@ pub fn FieldDef(comptime T: type) type {
     };
 }
 
+/// Helper function to format default values as strings at compile time
+fn formatDefaultValue(comptime T: type, default_val: T) ?[]const u8 {
+    return blk: {
+        if (T == []const u8) {
+            break :blk default_val;
+        } else if (@typeInfo(T) == .int) {
+            break :blk std.fmt.comptimePrint("{}", .{default_val});
+        } else if (@typeInfo(T) == .float) {
+            break :blk std.fmt.comptimePrint("{d}", .{default_val});
+        } else if (T == bool) {
+            break :blk if (default_val) "true" else "false";
+        } else {
+            break :blk null;
+        }
+    };
+}
+
 /// Create a boolean flag field definition with metadata
 pub fn flag(comptime field_name: []const u8, comptime config: FlagConfig) FieldDef(bool) {
     const metadata = FieldMetadata{
@@ -87,20 +104,7 @@ pub fn flag(comptime field_name: []const u8, comptime config: FlagConfig) FieldD
 
 /// Create an option field definition with metadata
 pub fn option(comptime field_name: []const u8, comptime T: type, comptime config: OptionConfig(T)) FieldDef(T) {
-    const default_str = blk: {
-        const default_val = config.default;
-        if (T == []const u8) {
-            break :blk default_val;
-        } else if (@typeInfo(T) == .int) {
-            break :blk std.fmt.comptimePrint("{}", .{default_val});
-        } else if (@typeInfo(T) == .float) {
-            break :blk std.fmt.comptimePrint("{d}", .{default_val});
-        } else if (T == bool) {
-            break :blk if (default_val) "true" else "false";
-        } else {
-            break :blk null;
-        }
-    };
+    const default_str = formatDefaultValue(T, config.default);
     
     const metadata = FieldMetadata{
         .name = field_name,
@@ -136,19 +140,7 @@ pub fn required(comptime field_name: []const u8, comptime T: type, comptime conf
 
 /// Create a positional field definition with metadata
 pub fn positional(comptime field_name: []const u8, comptime T: type, comptime config: PositionalConfig(T)) FieldDef(T) {
-    const default_str = if (config.default) |default_val| blk: {
-        if (T == []const u8) {
-            break :blk default_val;
-        } else if (@typeInfo(T) == .int) {
-            break :blk std.fmt.comptimePrint("{}", .{default_val});
-        } else if (@typeInfo(T) == .float) {
-            break :blk std.fmt.comptimePrint("{d}", .{default_val});
-        } else if (T == bool) {
-            break :blk if (default_val) "true" else "false";
-        } else {
-            break :blk null;
-        }
-    } else null;
+    const default_str = if (config.default) |default_val| formatDefaultValue(T, default_val) else null;
     
     const metadata = FieldMetadata{
         .name = field_name,
@@ -170,17 +162,73 @@ pub const ArgsConfig = struct {
     description: ?[]const u8 = null,
 };
 
+/// Handler function type that accepts any Args type and allocator
+pub const GenericHandlerFn = *const fn(*const anyopaque, std.mem.Allocator) anyerror!void;
+
 /// Configuration for command definitions
 pub const CommandConfig = struct {
     help: ?[]const u8 = null,
     title: ?[]const u8 = null,
     description: ?[]const u8 = null,
     hidden: bool = false,
-    handler: ?*const anyopaque = null,
+    handler: ?GenericHandlerFn = null,
 };
 
-/// Convert any config struct to CommandConfig, handling function conversion automatically
+/// Leaf command configuration with strongly-typed handler
+pub fn LeafCommandConfig(comptime ArgsType: type) type {
+    return struct {
+        help: ?[]const u8 = null,
+        title: ?[]const u8 = null,
+        description: ?[]const u8 = null,
+        hidden: bool = false,
+        handler: ?HandlerFn(ArgsType) = null,
+    };
+}
+
+/// Category command configuration (no handler allowed)
+pub const CategoryCommandConfig = struct {
+    help: ?[]const u8 = null,
+    title: ?[]const u8 = null,
+    description: ?[]const u8 = null,
+    hidden: bool = false,
+};
+
+/// Convert leaf command config to generic CommandConfig
+fn convertLeafConfig(comptime ArgsType: type, comptime config: LeafCommandConfig(ArgsType)) CommandConfig {
+    const generic_handler = if (config.handler) |handler|
+        struct {
+            fn call(args_ptr: *const anyopaque, allocator: std.mem.Allocator) !void {
+                const typed_args: *const ArgsType.ArgsType = @ptrCast(@alignCast(args_ptr));
+                try handler(typed_args.*, allocator);
+            }
+        }.call
+    else
+        null;
+    
+    return CommandConfig{
+        .help = config.help,
+        .title = config.title,
+        .description = config.description,
+        .hidden = config.hidden,
+        .handler = generic_handler,
+    };
+}
+
+/// Convert category command config to generic CommandConfig
+fn convertCategoryConfig(comptime config: CategoryCommandConfig) CommandConfig {
+    return CommandConfig{
+        .help = config.help,
+        .title = config.title,
+        .description = config.description,
+        .hidden = config.hidden,
+        .handler = null, // Categories cannot have handlers
+    };
+}
+
+/// Convert any config struct to CommandConfig (legacy support)
 fn convertConfig(comptime config: anytype) CommandConfig {
+    // This function provides backward compatibility for anonymous config structs
+    // New code should use LeafCommandConfig(ArgsType) or CategoryCommandConfig
     const ConfigType = @TypeOf(config);
     const config_info = @typeInfo(ConfigType);
     
@@ -190,7 +238,7 @@ fn convertConfig(comptime config: anytype) CommandConfig {
     
     var result = CommandConfig{};
     
-    // Copy known fields and handle handler conversion
+    // Copy known fields (handler conversion is now type-unsafe for legacy support)
     inline for (config_info.@"struct".fields) |field| {
         const field_value = @field(config, field.name);
         
@@ -203,42 +251,42 @@ fn convertConfig(comptime config: anytype) CommandConfig {
         } else if (std.mem.eql(u8, field.name, "hidden")) {
             result.hidden = field_value;
         } else if (std.mem.eql(u8, field.name, "handler")) {
+            // Legacy handler conversion - preserved for backward compatibility
+            // TODO: Migrate to LeafCommandConfig(ArgsType) and cli.leafCommand() for better type safety
             const handler_info = @typeInfo(@TypeOf(field_value));
             switch (handler_info) {
                 .@"fn" => {
-                    result.handler = @as(*const anyopaque, @ptrCast(&field_value));
+                    result.handler = @as(?GenericHandlerFn, @ptrCast(&field_value));
                 },
                 .pointer => |ptr_info| {
                     if (ptr_info.size == .One) {
                         const pointee_info = @typeInfo(ptr_info.child);
                         if (pointee_info == .@"fn") {
-                            result.handler = @as(*const anyopaque, @ptrCast(field_value));
+                            result.handler = @as(?GenericHandlerFn, @ptrCast(field_value));
                         } else {
-                            result.handler = field_value; // Already converted
+                            result.handler = @as(?GenericHandlerFn, @ptrCast(field_value));
                         }
                     } else {
-                        result.handler = field_value;
+                        result.handler = @as(?GenericHandlerFn, @ptrCast(field_value));
                     }
                 },
                 .optional => |opt_info| {
-                    // Handle optional handlers (including null)
                     if (field_value == null) {
                         result.handler = null;
                     } else {
                         const inner_info = @typeInfo(opt_info.child);
                         if (inner_info == .@"fn") {
-                            result.handler = @as(*const anyopaque, @ptrCast(&field_value.?));
+                            result.handler = @as(?GenericHandlerFn, @ptrCast(&field_value.?));
                         } else {
-                            result.handler = field_value;
+                            result.handler = @as(?GenericHandlerFn, @ptrCast(field_value));
                         }
                     }
                 },
                 .@"null" => {
-                    // Handle null literal
                     result.handler = null;
                 },
                 else => {
-                    result.handler = field_value;
+                    result.handler = @as(?GenericHandlerFn, @ptrCast(field_value));
                 },
             }
         }
@@ -250,6 +298,30 @@ fn convertConfig(comptime config: anytype) CommandConfig {
 /// Handler function type for leaf commands
 pub fn HandlerFn(comptime ArgsType: type) type {
     return *const fn(ArgsType.ArgsType, std.mem.Allocator) anyerror!void;
+}
+
+/// Create a leaf command with strongly-typed handler
+pub fn leafCommand(comptime name: []const u8, comptime ArgsType: type, comptime config: LeafCommandConfig(ArgsType)) CommandDef(ArgsType) {
+    return CommandDef(ArgsType){
+        .command_name = name,
+        .config = convertLeafConfig(ArgsType, config),
+        .command_type = .leaf,
+        .data = .{ .leaf = ArgsType },
+        .handler = if (config.handler) |h| @as(*const anyopaque, @ptrCast(&h)) else null,
+        .original_type = ArgsType,
+    };
+}
+
+/// Create a category command (no handler allowed)
+pub fn categoryCommand(comptime name: []const u8, comptime SubcommandType: type, comptime config: CategoryCommandConfig) CommandDef(SubcommandType) {
+    return CommandDef(SubcommandType){
+        .command_name = name,
+        .config = convertCategoryConfig(config),
+        .command_type = .category,
+        .data = .{ .category = SubcommandType },
+        .handler = null,
+        .original_type = SubcommandType,
+    };
 }
 
 
@@ -328,12 +400,62 @@ pub fn CommandDef(comptime T: type) type {
     };
 }
 
+/// Compile-time validation for command data types
+fn validateCommandData(comptime command_data: anytype) void {
+    const T = @TypeOf(command_data);
+    const type_info = @typeInfo(T);
+    
+    // Validate the command data type
+    if (type_info == .type) {
+        // command_data is a type (like ServeArgs which is a type returned by Args())
+        const target_type = command_data;
+        const target_info = @typeInfo(target_type);
+        
+        if (target_info == .@"struct") {
+            // For struct types, we'll allow any struct as it could be:
+            // 1. Args type created with cli.Args() (has dsl_metadata and parse methods)
+            // 2. Commands type created with cli.Commands() (has parse and commands field)
+            // 3. A simple struct with CLI fields
+            // The actual validation happens later in the command() function
+        } else {
+            @compileError("Type parameters must be struct types (Args or Commands)");
+        }
+    } else if (type_info == .pointer) {
+        const ptr_info = type_info.pointer;
+        if (ptr_info.size != .Slice) {
+            @compileError("Pointer parameters must be slices of commands");
+        }
+    } else if (type_info == .array) {
+        // Array of commands is valid
+    } else {
+        @compileError("Invalid command data type. Expected: Args type, Commands type, or array/slice of commands");
+    }
+}
+
 /// Create a unified command definition that automatically detects leaf vs category commands
 /// Usage: 
 ///   command("serve", Args(...), .{ .help = "Start the server" })  // Leaf command without handler
 ///   command("serve", Args(...), .{ .help = "Start the server", .handler = myHandler })  // Leaf command with handler (automatic conversion)
 ///   command("git", &.{ ... subcommands ... }, .{ .help = "Git operations" })  // Category command
 pub fn command(comptime name: []const u8, comptime command_data: anytype, comptime config: anytype) CommandDef(@TypeOf(command_data)) {
+    // Compile-time validation
+    if (name.len == 0) {
+        @compileError("Command name cannot be empty");
+    }
+    
+    // Validate command name format (no spaces, special chars)
+    comptime {
+        for (name) |c| {
+            if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
+                @compileError("Command name cannot contain whitespace characters");
+            }
+            if (c == '-' and name[0] == '-') {
+                @compileError("Command name cannot start with dashes (reserved for flags)");
+            }
+        }
+    }
+    
+    validateCommandData(command_data);
     // Convert the config to proper CommandConfig, handling automatic function conversion
     const converted_config = convertConfig(config);
     const T = @TypeOf(command_data);
@@ -380,12 +502,33 @@ pub fn command(comptime name: []const u8, comptime command_data: anytype, compti
         @compileError("command() expects either an Args type, Commands type, or an array of subcommands");
     };
     
-    // Validate handler type if provided in config
+    // Validate handler type and command type compatibility
     const handler_ptr = if (converted_config.handler == null) null else blk: {
         if (command_type != .leaf) {
-            @compileError("Handlers can only be used with leaf commands (Args types)");
+            @compileError("Handlers can only be used with leaf commands (Args types). Category commands cannot have handlers.");
         }
-        // Handler is already converted to *const anyopaque, so we can use it directly
+        
+        // Additional validation: ensure the command data is actually an Args type
+        if (type_info == .type) {
+            const target_type = command_data;
+            const target_info = @typeInfo(target_type);
+            if (target_info == .@"struct") {
+                const struct_info = target_info.@"struct";
+                var has_args_marker = false;
+                for (struct_info.decls) |decl| {
+                    if (std.mem.eql(u8, decl.name, "dsl_metadata") or 
+                       std.mem.eql(u8, decl.name, "ArgsType")) {
+                        has_args_marker = true;
+                        break;
+                    }
+                }
+                if (!has_args_marker) {
+                    @compileError("Handlers can only be used with Args types created via cli.Args()");
+                }
+            }
+        }
+        
+        // Handler is already converted to GenericHandlerFn, so we can use it directly
         break :blk converted_config.handler;
     };
     
