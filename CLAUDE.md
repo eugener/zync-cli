@@ -306,13 +306,22 @@ const Args = struct {
 
 ### 🧪 Testing Infrastructure
 
+#### Embedded Test Design Philosophy
+**Zync-CLI follows official Zig testing best practices with embedded tests:**
+- **Embedded tests** are written directly in source modules alongside the code they test
+- **Zero impact on library size** - Tests are automatically excluded from production builds
+- **Follows Zig standard library patterns** - Same approach used throughout std library
+- **Conditional test imports** - Uses `builtin.is_test` to exclude test dependencies from production
+- **Library verification** - Compiled library is only 500 bytes, confirming no test bloat
+
 #### Comprehensive Test Coverage
-- **175 total tests** across all modules (100% passing)
+- **175+ total tests** across all modules (100% passing)
 - **Individual module testing** with granular test commands
 - **Integration tests** covering end-to-end functionality
 - **Expanded coverage** including all DSL features and edge cases
 - **Automatic help testing** with comprehensive help flag scenarios
 - **ANSI-aware testing** with color code stripping for reliable cross-environment testing
+- **Validation testing** with comprehensive compile-time validation verification
 
 #### Test Commands
 ```bash

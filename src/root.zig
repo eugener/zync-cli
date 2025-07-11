@@ -23,7 +23,10 @@
 //! ```
 
 const std = @import("std");
-const testing = std.testing;
+const builtin = @import("builtin");
+
+// Only import testing when running tests
+const testing = if (builtin.is_test) std.testing else struct {};
 
 // Core modules
 const parser = @import("parser.zig");
