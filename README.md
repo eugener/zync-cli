@@ -1,7 +1,7 @@
 # Zync-CLI
 
 [![Build Status](https://img.shields.io/badge/build-passing-brightgreen)](#testing)
-[![Tests](https://img.shields.io/badge/tests-160%2F160%20passing-brightgreen)](#testing)
+[![Tests](https://img.shields.io/badge/tests-175%2F175%20passing-brightgreen)](#testing)
 [![Memory Safe](https://img.shields.io/badge/memory-leak%20free-brightgreen)](#memory-management)
 [![Zig Version](https://img.shields.io/badge/zig-0.14.1-orange)](https://ziglang.org/)
 
@@ -15,7 +15,8 @@ A powerful, ergonomic command-line interface library for Zig that leverages comp
 - **Environment Variable Support** - Seamless integration with standard priority chain
 - **Memory Safe** - Automatic memory management with zero leaks
 - **Rich Diagnostics** - Helpful error messages with suggestions
-- **Battle Tested** - 160 comprehensive tests covering all functionality
+- **Handler Execution** - Direct command execution with automatic handler function support
+- **Battle Tested** - 175 comprehensive tests covering all functionality
 - **Automatic Help** - Built-in help generation with dynamic program name detection and zero boilerplate
 - **Colorized Output** - Beautiful terminal colors with smart detection and fallback
 
@@ -453,6 +454,134 @@ Options:
   -f, --fetch       Fetch after adding remote
 ```
 
+## Command Handler System
+
+Zync-CLI v0.6.0 introduces a powerful command handler system that enables automatic execution of business logic after argument parsing:
+
+### Handler Functions
+
+Add handler functions directly to command configurations for automatic execution:
+
+```zig
+const std = @import("std");
+const cli = @import("zync-cli");
+
+// Define handler functions
+fn serveHandler(args: ServeArgs.ArgsType, allocator: std.mem.Allocator) !void {
+    std.debug.print("🚀 Starting server on port {d}...\n", .{args.port});
+    
+    if (args.daemon) {
+        std.debug.print("   Running as daemon\n", .{});
+    }
+    
+    // Your server logic here
+    std.debug.print("✅ Server started successfully!\n", .{});
+}
+
+fn buildHandler(args: BuildArgs.ArgsType, allocator: std.mem.Allocator) !void {
+    std.debug.print("🔨 Building project...\n", .{});
+    
+    if (args.release) {
+        std.debug.print("   Release mode enabled\n", .{});
+    }
+    
+    // Your build logic here
+    std.debug.print("✅ Build completed!\n", .{});
+}
+
+// Define argument structures
+const ServeArgs = cli.Args(&.{
+    cli.flag("daemon", .{ .short = 'd', .help = "Run as daemon" }),
+    cli.option("port", u16, .{ .short = 'p', .default = 8080, .help = "Port to listen on" }),
+});
+
+const BuildArgs = cli.Args(&.{
+    cli.flag("release", .{ .short = 'r', .help = "Build in release mode" }),
+    cli.option("target", []const u8, .{ .short = 't', .default = "native", .help = "Target platform" }),
+});
+
+// Create commands with handlers
+const AppCommands = cli.Commands(&.{
+    cli.command("serve", ServeArgs, .{ .help = "Start the server", .handler = serveHandler }),
+    cli.command("build", BuildArgs, .{ .help = "Build the application", .handler = buildHandler }),
+});
+
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    
+    // Commands automatically execute their handlers after parsing
+    try AppCommands.parse(arena.allocator());
+}
+```
+
+### Handler Features
+
+- **Automatic Execution** - Handlers run automatically after successful argument parsing
+- **Type Safety** - Handlers receive properly typed parsed arguments
+- **Memory Management** - Allocator provided for handler memory needs
+- **Error Handling** - Handler errors propagate naturally through the call stack
+- **Zero Boilerplate** - Simple function assignment: `.handler = myFunction`
+- **Nested Support** - Works seamlessly with nested subcommand hierarchies
+
+### Usage Examples
+
+```bash
+# Handlers execute automatically after parsing
+$ ./myapp serve --daemon --port 3000
+🚀 Starting server on port 3000...
+   Running as daemon
+✅ Server started successfully!
+
+$ ./myapp build --release --target x86_64-linux
+🔨 Building project...
+   Release mode enabled
+✅ Build completed!
+
+# Help still works normally
+$ ./myapp serve --help
+myapp serve - Start the server
+
+Usage: myapp serve [OPTIONS]
+
+Options:
+  -d, --daemon          Run as daemon
+  -p, --port [value]    Port to listen on (default: 8080)
+  -h, --help            Show this help message
+```
+
+### Handler Function Signature
+
+Handler functions must follow this signature:
+
+```zig
+fn handlerName(args: ArgsType.ArgsType, allocator: std.mem.Allocator) !void
+```
+
+Where:
+- `args` contains the parsed command-line arguments
+- `allocator` provides memory allocation for handler operations
+- Return type can be `!void` for error-returning handlers or `void` for simple handlers
+
+### Nested Command Handlers
+
+Handlers work seamlessly with nested subcommand hierarchies:
+
+```zig
+const DbMigrateCommands = cli.Commands(&.{
+    cli.command("up", DbMigrateUpArgs, .{ .help = "Apply migrations", .handler = migrateUpHandler }),
+    cli.command("down", DbMigrateDownArgs, .{ .help = "Rollback migrations", .handler = migrateDownHandler }),
+});
+
+const DatabaseCommands = cli.Commands(&.{
+    cli.command("migrate", DbMigrateCommands, .{ .help = "Migration operations" }),
+    cli.command("seed", DbSeedArgs, .{ .help = "Seed database", .handler = seedHandler }),
+});
+
+// Usage: ./myapp db migrate up --steps 5
+// Automatically executes migrateUpHandler with parsed arguments
+```
+
 ## Function-based DSL
 
 Zync-CLI uses a function-based DSL for defining CLI arguments:
@@ -649,7 +778,10 @@ Create a unified command definition that automatically detects leaf vs category 
 // Leaf command (with Args)
 cli.command("serve", ServeArgs, .{ .help = "Start the server" })
 
-// Category command (with subcommands) - planned for v0.6.0
+// Leaf command with handler
+cli.command("serve", ServeArgs, .{ .help = "Start the server", .handler = serveHandler })
+
+// Category command (with subcommands)
 cli.command("db", DatabaseCommands, .{ .help = "Database operations" })
 ```
 
@@ -662,6 +794,7 @@ Configuration for command definitions.
     .title = "Custom command title",
     .description = "Detailed command description",
     .hidden = false, // Set to true for internal commands
+    .handler = myHandler, // Optional handler function for automatic execution
 }
 ```
 
@@ -832,7 +965,7 @@ test "my CLI parsing" {
 
 ### Current Test Coverage
 
-- **160 total tests** across all modules
+- **175 total tests** across all modules
 - **Method-style API** - Ergonomic `Args.parse()` and `Args.parseFrom()` methods
 - **Function-based DSL** - Zero-duplication metadata extraction
 - **Argument parsing** for all supported types
@@ -847,6 +980,7 @@ test "my CLI parsing" {
 - **Colorized output** with smart terminal detection
 - **Cross-platform color support** with environment variable controls
 - **Hierarchical subcommand system** with type detection and depth validation
+- **Handler execution system** with automatic function calling and type safety
 - **Subcommand help generation** with colorized output and alignment
 - **Integration testing** with real CLI scenarios
 
@@ -885,20 +1019,21 @@ const args = try Args.parse(arena.allocator());
 zync-cli/
 ├── src/
 │   ├── root.zig        # Main library API (simplified, idiomatic)
-│   ├── types.zig       # Core type definitions
+│   ├── types.zig       # Core type definitions with ParseError and Location
 │   ├── parser.zig      # Argument parsing engine with detailed errors
 │   ├── meta.zig        # Compile-time metadata extraction
-│   ├── cli.zig         # Function-based DSL implementation
+│   ├── cli.zig         # Function-based DSL and subcommand system with handlers
 │   ├── help.zig        # Help text generation
-│   ├── colors.zig      # Advanced color API with format support and writer interface
-│   └── testing.zig     # Testing utilities
+│   ├── colors.zig      # Unified color API with smart detection and test-aware output
+│   ├── testing.zig     # Testing utilities
+│   ├── test_utils.zig  # Test mode handling utilities
+│   ├── field_utils.zig # Struct field operation utilities
+│   └── error_utils.zig # Unified error creation utilities
 ├── examples/
 │   ├── simple.zig      # Minimal usage example
 │   ├── basic.zig       # Complete example with custom banner
 │   ├── environment.zig # Environment variable demonstration
-│   ├── subcommands.zig # Basic subcommand system demo
-│   ├── multilevel.zig  # Complex multilevel command organization patterns
-│   └── nested.zig      # True nested subcommands with unlimited depth
+│   └── commands.zig    # Comprehensive command system with handlers and nested subcommands
 ├── build.zig           # Build configuration
 ├── README.md           # This file
 ├── CLAUDE.md           # Project documentation
@@ -917,14 +1052,9 @@ zig build
 zig build run-simple -- --verbose --name Developer --count 2
 zig build run-basic -- --help
 zig build run-environment -- --debug --api-key secret
-zig build run-subcommands -- --help
-zig build run-subcommands -- serve --daemon --port 3000
-zig build run-multilevel -- --help
-zig build run-multilevel -- db-migrate-up --steps 5 --dry-run
-zig build run-multilevel -- docker-run --image nginx --detach
-zig build run-nested -- --help
-zig build run-nested -- git remote add --name origin --url https://github.com/user/repo.git
-zig build run-nested -- db migrate up --steps 5 --dry-run
+zig build run-commands -- --help
+zig build run-commands -- serve --daemon --port 3000
+zig build run-commands -- db migrate up --steps 5 --dry-run
 
 # Install library
 zig build install
@@ -933,17 +1063,14 @@ zig build install
 zig build install-simple
 zig build install-basic
 zig build install-environment
-zig build install-subcommands
-zig build install-multilevel
-zig build install-nested
+zig build install-commands
 
 # Run installed executables directly (cleanest output)
 ./zig-out/examples/environment --help
 ./zig-out/examples/simple --verbose --count 3
-./zig-out/examples/multilevel --help
-./zig-out/examples/multilevel git-remote-add --name origin --url https://github.com/user/repo.git
-./zig-out/examples/nested --help
-./zig-out/examples/nested git remote add --name origin --url https://github.com/user/repo.git
+./zig-out/examples/commands --help
+./zig-out/examples/commands serve --daemon --port 3000
+./zig-out/examples/commands db migrate up --steps 5
 ```
 
 ### Contributing
@@ -1009,9 +1136,19 @@ zig build -Drelease-fast && time ./zig-out/bin/zync_cli --help
 - [x] **Colorized subcommand help** - Beautiful, aligned help output with smart color detection
 - [x] **Zero boilerplate** - Single `Commands.parse()` call handles all routing and parsing
 
-## Planned (v0.6.0)
+### Completed (v0.6.0)
+- [x] **Handler execution system** - Direct command execution with automatic function calling
+- [x] **Automatic type conversion** - Functions converted to handlers with zero boilerplate
+- [x] **Type-safe handler functions** - Handlers receive properly typed arguments and allocator
+- [x] **Error propagation** - Handler errors flow naturally through the call stack
+- [x] **Nested handler support** - Handlers work seamlessly with subcommand hierarchies
+- [x] **Code quality improvements** - Comprehensive redundancy elimination and utility modules
+- [x] **Test reliability** - ANSI-aware testing with 175/175 tests passing consistently
+
+### Planned (v0.7.0)
 - [ ] Configuration file parsing (TOML/JSON integration)
 - [ ] Multiple value support with array types (`*` encoding)
+- [ ] Advanced field validation with custom validators
 
 ### Future (v1.0.0)
 - [ ] Plugin system for custom types

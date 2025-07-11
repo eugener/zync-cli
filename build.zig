@@ -43,9 +43,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "basic", .file = "examples/basic.zig" },
         .{ .name = "simple", .file = "examples/simple.zig" },
         .{ .name = "environment", .file = "examples/environment.zig" },
-        .{ .name = "subcommands", .file = "examples/subcommands.zig" },
-        .{ .name = "nested", .file = "examples/nested.zig" },
-        .{ .name = "handlers", .file = "examples/handlers.zig" },
+        .{ .name = "commands", .file = "examples/commands.zig" },
     };
 
     inline for (examples) |example| {

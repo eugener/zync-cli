@@ -1,16 +1,18 @@
-//! Handler Example - Command execution with handler functions
+//! Commands Example - Comprehensive command system with handlers and nested subcommands
 //!
-//! This example demonstrates how to use handler functions with zync-cli
-//! commands to execute specific logic for each command. Handlers are specified
-//! directly in the command configuration with automatic type conversion:
+//! This example demonstrates the full power of zync-cli's command system including:
+//! - Handler functions for automatic command execution
+//! - Nested subcommand hierarchies (db migrate up, db seed, etc.)  
+//! - Type-safe argument parsing with environment variable support
+//! - Zero-boilerplate handler assignment with automatic type conversion
 //! 
 //! Syntax: cli.command("name", Args, .{ .help = "...", .handler = myFunction })
 //!
 //! Examples:
-//! - handlers serve --port 3000 --daemon
-//! - handlers build --release --target x86_64-linux
-//! - handlers db migrate up --steps 5
-//! - handlers db seed --file production.sql --force
+//! - commands serve --port 3000 --daemon
+//! - commands build --release --target x86_64-linux
+//! - commands db migrate up --steps 5
+//! - commands db seed --file production.sql --force
 
 const std = @import("std");
 const cli = @import("zync-cli");
