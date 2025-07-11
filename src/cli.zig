@@ -1324,6 +1324,8 @@ fn validateCommandsInput(comptime T: type) void {
 
 /// Detailed validation of command definitions
 fn validateCommandsDetailed(comptime commands: anytype) void {
+    @setEvalBranchQuota(5000); // Increase evaluation limit for complex validation
+    
     // Check for duplicate command names
     comptime validateNoDuplicateCommands(commands);
     

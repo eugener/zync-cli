@@ -133,6 +133,12 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    
+    const validation_tests = b.addTest(.{
+        .root_source_file = b.path("src/validation_tests.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
 
     // Test runners for individual modules
     const run_parser_tests = b.addRunArtifact(parser_tests);
@@ -140,6 +146,7 @@ pub fn build(b: *std.Build) void {
     const run_meta_tests = b.addRunArtifact(meta_tests);
     const run_help_tests = b.addRunArtifact(help_tests);
     const run_testing_tests = b.addRunArtifact(testing_tests);
+    const run_validation_tests = b.addRunArtifact(validation_tests);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
     // the `zig build --help` menu, providing a way for the user to request
@@ -151,6 +158,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_meta_tests.step);
     test_step.dependOn(&run_help_tests.step);
     test_step.dependOn(&run_testing_tests.step);
+    test_step.dependOn(&run_validation_tests.step);
 
     // Individual test steps for selective testing
     const test_parser_step = b.step("test-parser", "Run parser module tests");
@@ -167,4 +175,7 @@ pub fn build(b: *std.Build) void {
     
     const test_testing_step = b.step("test-testing", "Run testing module tests");
     test_testing_step.dependOn(&run_testing_tests.step);
+    
+    const test_validation_step = b.step("test-validation", "Run validation tests");
+    test_validation_step.dependOn(&run_validation_tests.step);
 }
